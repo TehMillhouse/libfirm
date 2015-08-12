@@ -25,12 +25,19 @@ struct be_module_list_entry_t {
 	struct be_module_list_entry_t *next; /**< Points to the next entry. */
 };
 
+#define BACKENDS \
+	M(amd64) \
+	M(arm) \
+	M(ia32) \
+	M(mips) \
+	M(sparc) \
+	M(TEMPLATE)
+
+#define M(x) void be_init_arch_##x(void);
+BACKENDS
+#undef M
+
 void be_init_arch(void);
-void be_init_arch_TEMPLATE(void);
-void be_init_arch_amd64(void);
-void be_init_arch_arm(void);
-void be_init_arch_ia32(void);
-void be_init_arch_sparc(void);
 void be_init_blocksched(void);
 void be_init_chordal(void);
 void be_init_chordal_common(void);
@@ -93,11 +100,9 @@ void be_init_modules(void)
 	be_init_state();
 
 	/* in the following groups the first one is the default */
-	be_init_arch_ia32();
-	be_init_arch_arm();
-	be_init_arch_sparc();
-	be_init_arch_amd64();
-	be_init_arch_TEMPLATE();
+#define M(x) be_init_arch_##x();
+	BACKENDS
+#undef M
 
 	be_init_listsched();
 	be_init_sched_normal();

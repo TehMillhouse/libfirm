@@ -14,7 +14,7 @@
 #include "panic.h"
 #include "util.h"
 
-static unsigned callee_saves[] = {
+static unsigned const callee_saves[] = {
 	REG_S0,
 	REG_S1,
 	REG_S2,
@@ -23,6 +23,13 @@ static unsigned callee_saves[] = {
 	REG_S5,
 	REG_S6,
 	REG_S7,
+};
+
+static unsigned const param_regs_gp[] = {
+	REG_A0,
+	REG_A1,
+	REG_A2,
+	REG_A3,
 };
 
 static ir_node *get_Start_sp(ir_graph *const irg)
@@ -43,6 +50,26 @@ static inline bool is_simm16(long const val)
 static inline bool is_uimm16(long const val)
 {
 	return 0 <= val && val < 65536;
+}
+
+static ir_node *gen_Add(ir_node *const node)
+{
+	ir_node *const l    = get_Add_left(node);
+	ir_node *const r    = get_Add_right(node);
+	ir_mode *const mode = get_irn_mode(node);
+	if (mode_is_int(mode)) {
+		dbg_info *const dbgi  = get_irn_dbg_info(node);
+		ir_node  *const block = be_transform_nodes_block(node);
+		ir_node  *const new_l = be_transform_node(l);
+		if (is_Const(r)) {
+			long const val = get_Const_long(r);
+			if (is_simm16(val))
+				return new_bd_mips_addiu(dbgi, block, new_l, val);
+		}
+		ir_node  *const new_r = be_transform_node(r);
+		return new_bd_mips_addu(dbgi, block, new_l, new_r);
+	}
+	panic("undhandled Add");
 }
 
 static ir_node *gen_Const(ir_node *const node)
@@ -77,6 +104,27 @@ static ir_node *gen_Const(ir_node *const node)
 		}
 	}
 	panic("unhandled Const");
+}
+
+static ir_node *gen_Proj_Proj_Start(ir_node *const node)
+{
+	assert(get_Proj_num(get_Proj_pred(node)) == pn_Start_T_args);
+
+	ir_graph *const irg = get_irn_irg(node);
+	unsigned  const num = get_Proj_num(node);
+	assert(num < ARRAY_SIZE(param_regs_gp));
+	return be_get_Start_proj(irg, &mips_registers[param_regs_gp[num]]);
+}
+
+static ir_node *gen_Proj_Proj(ir_node *const node)
+{
+	ir_node *const pred      = get_Proj_pred(node);
+	ir_node *const pred_pred = get_Proj_pred(pred);
+	if (is_Start(pred_pred)) {
+		return gen_Proj_Proj_Start(node);
+	} else {
+		panic("unexpected Proj-Proj");
+	}
 }
 
 static ir_node *gen_Proj_Start(ir_node *const node)
@@ -161,19 +209,52 @@ static ir_node *gen_Start(ir_node *const node)
 		outs[callee_saves[i]] = BE_START_REG;
 	}
 
-	ir_graph *const irg = get_irn_irg(node);
+	ir_graph  *const irg  = get_irn_irg(node);
+	ir_entity *const ent  = get_irg_entity(irg);
+	ir_type   *const type = get_entity_type(ent);
+	unsigned         n_gp = 0;
+	for (size_t i = 0, n = get_method_n_params(type); i != n; ++i) {
+		ir_type *const param_type = get_method_param_type(type, i);
+		ir_mode *const param_mode = get_type_mode(param_type);
+		if (mode_is_int(param_mode)) {
+			if (n_gp == ARRAY_SIZE(param_regs_gp))
+				panic("memory parameters not supported yet");
+			outs[param_regs_gp[n_gp++]] = BE_START_REG;
+		} else {
+			panic("unsupported param mode");
+		}
+	}
+
 	return be_new_Start(irg, outs);
+}
+
+static ir_node *gen_Sub(ir_node *const node)
+{
+	ir_node *const l    = get_Sub_left(node);
+	ir_node *const r    = get_Sub_right(node);
+	ir_mode *const mode = get_irn_mode(node);
+	if (mode_is_int(mode)) {
+		dbg_info *const dbgi  = get_irn_dbg_info(node);
+		ir_node  *const block = be_transform_nodes_block(node);
+		ir_node  *const new_l = be_transform_node(l);
+		ir_node  *const new_r = be_transform_node(r);
+		return new_bd_mips_subu(dbgi, block, new_l, new_r);
+	}
+	panic("undhandled Sub");
 }
 
 static void mips_register_transformers(void)
 {
 	be_start_transform_setup();
 
+	be_set_transform_function(op_Add,    gen_Add);
 	be_set_transform_function(op_Const,  gen_Const);
 	be_set_transform_function(op_Return, gen_Return);
 	be_set_transform_function(op_Start,  gen_Start);
+	be_set_transform_function(op_Sub,    gen_Sub);
 
 	be_set_transform_proj_function(op_Start, gen_Proj_Start);
+	be_set_transform_proj_function(op_Proj,  gen_Proj_Proj);
 }
 
 static void mips_set_allocatable_regs(ir_graph *const irg)

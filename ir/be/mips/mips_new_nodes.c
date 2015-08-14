@@ -42,7 +42,25 @@ int mips_immediate_attrs_equal(ir_node const *const a, ir_node const *const b)
 	mips_immediate_attr_t const *const b_attr = get_mips_immediate_attr_const(b);
 	return
 		mips_attrs_equal_(&a_attr->attr, &b_attr->attr) &&
+		a_attr->ent == b_attr->ent &&
 		a_attr->val == b_attr->val;
+}
+
+static void dump_immediate(FILE *const F, char const *const prefix, ir_node const *const n)
+{
+	mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);
+	if (imm->ent) {
+		fputc(' ', F);
+		if (prefix)
+			fprintf(F, "%s(", prefix);
+		fputs(get_entity_name(imm->ent), F);
+		if (imm->val != 0)
+			fprintf(F, "%+" PRId32, imm->val);
+		if (prefix)
+			fputc(')', F);
+	} else {
+		fprintf(F, " %+" PRId32, imm->val);
+	}
 }
 
 void mips_dump_node(FILE *const F, ir_node const *const n, dump_reason_t const reason)
@@ -50,15 +68,13 @@ void mips_dump_node(FILE *const F, ir_node const *const n, dump_reason_t const r
 	switch (reason) {
 		case dump_node_opcode_txt:
 			fprintf(F, "%s", get_irn_opname(n));
-			if (is_mips_addiu(n)) {
-				mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);
-				fprintf(F, " %+" PRId32, imm->val);
+			if (is_mips_addiu(n) || is_mips_lw(n) || is_mips_sw(n)) {
+				dump_immediate(F, "%lo", n);
 			} else if (is_mips_andi(n) || is_mips_ori(n) || is_mips_xori(n)) {
 				mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);
 				fprintf(F, " 0x%04" PRIX32, (uint32_t)imm->val);
 			} else if (is_mips_lui(n)) {
-				mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);
-				fprintf(F, " 0x%08" PRIX32, (uint32_t)imm->val << 16);
+				dump_immediate(F, "%hi", n);
 			}
 			break;
 

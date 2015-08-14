@@ -51,6 +51,7 @@ my $mode_gp = "mode_Iu"; # TODO
 		"\tattr->cond = cond;",
 	mips_immediate_attr_t =>
 		"be_info_init_irn(res, irn_flags, in_reqs, n_res);\n".
+		"\tattr->ent = ent;\n".
 		"\tattr->val = val;",
 );
 
@@ -74,7 +75,7 @@ my $immediateOp = {
 	ins       => [ "left" ],
 	outs      => [ "res" ],
 	attr_type => "mips_immediate_attr_t",
-	attr      => "int32_t const val",
+	attr      => "ir_entity *const ent, int32_t const val",
 };
 
 %nodes = (
@@ -86,7 +87,7 @@ addu => {
 
 addiu => {
 	template => $immediateOp,
-	emit     => "addiu\t%D0, %S0, %I",
+	emit     => "addiu\t%D0, %S0, %L",
 },
 
 and => {
@@ -140,8 +141,20 @@ lui => {
 	out_reqs  => [ "cls-gp" ],
 	outs      => [ "res" ],
 	attr_type => "mips_immediate_attr_t",
-	attr      => "int32_t const val",
-	emit      => "lui\t%D0, %I",
+	attr      => "ir_entity *const ent, int32_t const val",
+	emit      => "lui\t%D0, %H",
+},
+
+lw => {
+	op_flags  => [ "uses_memory" ],
+	state     => "exc_pinned",
+	in_reqs   => [ "mem", "cls-gp" ],
+	out_reqs  => [ "mem", "cls-gp" ],
+	ins       => [ "mem", "base" ],
+	outs      => [ "M", "res" ],
+	attr_type => "mips_immediate_attr_t",
+	attr      => "ir_entity *const ent, int32_t const val",
+	emit      => "lw\t%D1, %A1",
 },
 
 mul => {
@@ -157,6 +170,18 @@ or => {
 ori => {
 	template => $immediateOp,
 	emit     => "ori\t%D0, %S0, %I",
+},
+
+sw => {
+	op_flags  => [ "uses_memory" ],
+	state     => "exc_pinned",
+	in_reqs   => [ "mem", "cls-gp", "cls-gp" ],
+	out_reqs  => [ "mem" ],
+	ins       => [ "mem", "base", "value" ],
+	outs      => [ "M" ],
+	attr_type => "mips_immediate_attr_t",
+	attr      => "ir_entity *const ent, int32_t const val",
+	emit      => "sw\t%S2, %A1",
 },
 
 xor => {

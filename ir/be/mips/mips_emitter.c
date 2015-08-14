@@ -39,6 +39,22 @@ static char const *get_cond_name(mips_cond_t const cond)
 	panic("invalid cond");
 }
 
+static void emit_immediate(char const *const prefix, ir_node const *const node)
+{
+	mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(node);
+	if (imm->ent) {
+		if (prefix)
+			be_emit_irprintf("%s(", prefix);
+		be_gas_emit_entity(imm->ent);
+		if (imm->val)
+			be_emit_irprintf("%+" PRId32, imm->val);
+		if (prefix)
+			be_emit_char(')');
+	} else {
+		be_emit_irprintf("%" PRId32, imm->val);
+	}
+}
+
 void mips_emitf(ir_node const *const node, char const *fmt, ...)
 {
 	va_list ap;
@@ -72,6 +88,16 @@ void mips_emitf(ir_node const *const node, char const *fmt, ...)
 			be_emit_char('%');
 			break;
 
+		case 'A': {
+			if (!is_digit(*fmt))
+				goto unknown;
+			unsigned const pos = *fmt++ - '0';
+			reg = arch_get_irn_register_in(node, pos);
+			emit_immediate("%lo", node);
+			be_emit_irprintf("($%s)", reg->name);
+			break;
+		}
+
 		case 'C': {
 			mips_cond_attr_t const *const cond = get_mips_cond_attr_const(node);
 			be_emit_string(get_cond_name(cond->cond));
@@ -86,18 +112,24 @@ void mips_emitf(ir_node const *const node, char const *fmt, ...)
 			goto emit_R;
 		}
 
-		case 'L': {
+		case 'H':
+			emit_immediate("%hi", node);
+			break;
+
+		case 'I':
+			emit_immediate(NULL, node);
+			break;
+
+		case 'J': {
 			ir_node *const jump  = va_arg(ap, ir_node*);
 			ir_node *const label = get_target_block(jump);
 			be_gas_emit_block_name(label);
 			break;
 		}
 
-		case 'I': {
-			mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(node);
-			be_emit_irprintf("%" PRId32, imm->val);
+		case 'L':
+			emit_immediate("%lo", node);
 			break;
-		}
 
 		case 'R':
 			reg = va_arg(ap, arch_register_t const*);
@@ -143,7 +175,7 @@ static void emit_mips_b(ir_node const *const node)
 {
 	ir_node *const block = get_nodes_block(node);
 	if (get_target_block(block) != get_target_block(node)) {
-		mips_emitf(node, "b\t%L", node);
+		mips_emitf(node, "b\t%J", node);
 		mips_emitf(NULL, "nop");
 	}
 }
@@ -151,12 +183,12 @@ static void emit_mips_b(ir_node const *const node)
 static void emit_mips_bcc(ir_node const *const node)
 {
 	ir_node *const t = get_Proj_for_pn(node, pn_mips_bcc_true);
-	mips_emitf(node, "b%C\t%S0, %S1, %L", t);
+	mips_emitf(node, "b%C\t%S0, %S1, %J", t);
 	mips_emitf(NULL, "nop");
 	ir_node *const block = get_nodes_block(node);
 	ir_node *const f     = get_Proj_for_pn(node, pn_mips_bcc_false);
 	if (get_target_block(block) != get_target_block(f)) {
-		mips_emitf(node, "b\t%L", f);
+		mips_emitf(node, "b\t%J", f);
 		mips_emitf(NULL, "nop");
 	}
 }

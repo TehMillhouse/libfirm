@@ -14,6 +14,11 @@
 #include "panic.h"
 #include "util.h"
 
+static bool mode_needs_gp_reg(ir_mode *const mode)
+{
+	return mode_is_int(mode) || mode_is_reference(mode);
+}
+
 static unsigned const callee_saves[] = {
 	REG_S0,
 	REG_S1,
@@ -57,14 +62,14 @@ static ir_node *gen_Add(ir_node *const node)
 	ir_node *const l    = get_Add_left(node);
 	ir_node *const r    = get_Add_right(node);
 	ir_mode *const mode = get_irn_mode(node);
-	if (mode_is_int(mode)) {
+	if (mode_needs_gp_reg(mode)) {
 		dbg_info *const dbgi  = get_irn_dbg_info(node);
 		ir_node  *const block = be_transform_nodes_block(node);
 		ir_node  *const new_l = be_transform_node(l);
 		if (is_Const(r)) {
 			long const val = get_Const_long(r);
 			if (is_simm16(val))
-				return new_bd_mips_addiu(dbgi, block, new_l, val);
+				return new_bd_mips_addiu(dbgi, block, new_l, NULL, val);
 		}
 		ir_node *const new_r = be_transform_node(r);
 		return new_bd_mips_addu(dbgi, block, new_l, new_r);
@@ -73,7 +78,7 @@ static ir_node *gen_Add(ir_node *const node)
 }
 
 typedef ir_node *cons_binop(dbg_info*, ir_node*, ir_node*, ir_node*);
-typedef ir_node *cons_binop_imm(dbg_info*, ir_node*, ir_node*, int32_t);
+typedef ir_node *cons_binop_imm(dbg_info*, ir_node*, ir_node*, ir_entity*, int32_t);
 
 static ir_node *gen_logic_op(ir_node *const node, cons_binop *const cons, cons_binop_imm *const cons_imm)
 {
@@ -85,7 +90,7 @@ static ir_node *gen_logic_op(ir_node *const node, cons_binop *const cons, cons_b
 	if (is_Const(r)) {
 		long const val = get_Const_long(r);
 		if (is_uimm16(val))
-			return cons_imm(dbgi, block, new_l, val);
+			return cons_imm(dbgi, block, new_l, NULL, val);
 	}
 	ir_node *const new_r = be_transform_node(r);
 	return cons(dbgi, block, new_l, new_r);
@@ -103,7 +108,7 @@ static ir_node *gen_Cond(ir_node *const node)
 		ir_node *const l    = get_Cmp_left(sel);
 		ir_node *const r    = get_Cmp_right(sel);
 		ir_mode *const mode = get_irn_mode(l);
-		if (mode_is_int(mode)) {
+		if (mode_needs_gp_reg(mode)) {
 			ir_relation const rel = get_Cmp_relation(sel);
 			switch (rel) {
 			{
@@ -144,7 +149,7 @@ bcc:;
 static ir_node *gen_Const(ir_node *const node)
 {
 	ir_mode *const mode = get_irn_mode(node);;
-	if (mode_is_int(mode)) {
+	if (mode_needs_gp_reg(mode)) {
 		long const val = get_Const_long(node);
 		if (val == 0) {
 			ir_graph *const irg = get_irn_irg(node);
@@ -154,21 +159,21 @@ static ir_node *gen_Const(ir_node *const node)
 			ir_node  *const block = be_transform_nodes_block(node);
 			ir_graph *const irg   = get_irn_irg(node);
 			ir_node  *const zero  = get_Start_zero(irg);
-			return new_bd_mips_addiu(dbgi, block, zero, val);
+			return new_bd_mips_addiu(dbgi, block, zero, NULL, val);
 		} else {
 			ir_node        *res;
 			dbg_info *const dbgi  = get_irn_dbg_info(node);
 			ir_node  *const block = be_transform_nodes_block(node);
 			int32_t   const hi    = (uint32_t)val >> 16;
 			if (hi != 0) {
-				res = new_bd_mips_lui(dbgi, block, hi);
+				res = new_bd_mips_lui(dbgi, block, NULL, hi);
 			} else {
 				ir_graph *const irg = get_irn_irg(node);
 				res = get_Start_zero(irg);
 			}
 			int32_t const lo = val & 0xFFFF;
 			if (lo != 0)
-				res = new_bd_mips_ori(dbgi, block, res, lo);
+				res = new_bd_mips_ori(dbgi, block, res, NULL, lo);
 			return res;
 		}
 	}
@@ -187,11 +192,64 @@ static ir_node *gen_Jmp(ir_node *const node)
 	return new_bd_mips_b(dbgi, block);
 }
 
+typedef struct mips_addr {
+	ir_node   *base;
+	ir_entity *ent;
+	int32_t    val;
+} mips_addr;
+
+static mips_addr match_address(ir_node *ptr)
+{
+	mips_addr addr = {
+		.base = NULL,
+		.ent  = NULL, /* TODO */
+		.val  = 0,
+	};
+
+	if (is_Add(ptr)) {
+		ir_node *const r = get_Add_right(ptr);
+		if (is_Const(r)) {
+			long const val = get_Const_long(r);
+			if (is_simm16(val)) {
+				addr.val = val;
+				ptr = get_Add_left(ptr);
+			}
+		}
+	}
+
+	if (is_Address(ptr)) {
+		dbg_info *const dbgi  = get_irn_dbg_info(ptr);
+		ir_node  *const block = be_transform_nodes_block(ptr);
+		addr.ent  = get_Address_entity(ptr);
+		addr.base = new_bd_mips_lui(dbgi, block, addr.ent, addr.val);
+	} else {
+		addr.base = be_transform_node(ptr);
+	}
+
+	return addr;
+}
+
+static ir_node *gen_Load(ir_node *const node)
+{
+	ir_mode *const mode = get_Load_mode(node);
+	if (mode_needs_gp_reg(mode)) {
+		unsigned const size = get_mode_size_bits(mode);
+		if (size == 32) {
+			dbg_info *const dbgi  = get_irn_dbg_info(node);
+			ir_node  *const block = be_transform_nodes_block(node);
+			ir_node  *const mem   = be_transform_node(get_Load_mem(node));
+			mips_addr const addr  = match_address(get_Load_ptr(node));
+			return new_bd_mips_lw(dbgi, block, mem, addr.base, addr.ent, addr.val);
+		}
+	}
+	panic("TODO");
+}
+
 static ir_node *gen_Minus(ir_node *const node)
 {
 	ir_node *const val  = get_Minus_op(node);
 	ir_mode *const mode = get_irn_mode(node);
-	if (mode_is_int(mode)) {
+	if (mode_needs_gp_reg(mode)) {
 		dbg_info *const dbgi  = get_irn_dbg_info(node);
 		ir_node  *const block = be_transform_nodes_block(node);
 		ir_graph *const irg   = get_irn_irg(node);
@@ -207,7 +265,7 @@ static ir_node *gen_Mul(ir_node *const node)
 	ir_node *const l    = get_Mul_left(node);
 	ir_node *const r    = get_Mul_right(node);
 	ir_mode *const mode = get_irn_mode(node);
-	if (mode_is_int(mode)) {
+	if (mode_needs_gp_reg(mode)) {
 		dbg_info *const dbgi  = get_irn_dbg_info(node);
 		ir_node  *const block = be_transform_nodes_block(node);
 		ir_node  *const new_l = be_transform_node(l);
@@ -226,7 +284,7 @@ static ir_node *gen_Phi(ir_node *const node)
 {
 	arch_register_req_t       const *req;
 	ir_mode                   *const mode = get_irn_mode(node);
-	if (mode_is_int(mode)) {
+	if (mode_needs_gp_reg(mode)) {
 		req = &mips_class_reg_req_gp;
 	} else if (mode == mode_M) {
 		req = arch_memory_req;
@@ -234,6 +292,22 @@ static ir_node *gen_Phi(ir_node *const node)
 		panic("unhandled mode");
 	}
 	return be_transform_phi(node, req);
+}
+
+static ir_node *gen_Proj_Load(ir_node *const node)
+{
+	ir_node *const pred = get_Proj_pred(node);
+	ir_node *const load = be_transform_node(pred);
+
+	unsigned const pn = get_Proj_num(node);
+	switch ((pn_Load)pn) {
+	case pn_Load_M:   return be_new_Proj(load, pn_mips_lw_M);
+	case pn_Load_res: return be_new_Proj(load, pn_mips_lw_res);
+	case pn_Load_X_regular:
+	case pn_Load_X_except:
+		break;
+	}
+	panic("TODO");
 }
 
 static ir_node *gen_Proj_Proj_Start(ir_node *const node)
@@ -266,6 +340,21 @@ static ir_node *gen_Proj_Start(ir_node *const node)
 	case pn_Start_T_args:       return new_r_Bad(irg, mode_T);
 	}
 	panic("unexpected Proj");
+}
+
+static ir_node *gen_Proj_Store(ir_node *const node)
+{
+	ir_node *const pred  = get_Proj_pred(node);
+	ir_node *const store = be_transform_node(pred);
+
+	unsigned const pn = get_Proj_num(node);
+	switch ((pn_Store)pn) {
+	case pn_Store_M: return store;
+	case pn_Store_X_regular:
+	case pn_Store_X_except:
+		break;
+	}
+	panic("TODO");
 }
 
 static ir_node *gen_Proj_default(ir_node *node)
@@ -301,7 +390,7 @@ static ir_node *gen_Return(ir_node *const node)
 			panic("too many return values");
 		ir_node *const res0     = get_Return_res(node, 0);
 		ir_mode *const res_mode = get_irn_mode(res0);
-		if (mode_is_int(res_mode)) {
+		if (mode_needs_gp_reg(res_mode)) {
 			static arch_register_req_t const *const res_reqs[] = {
 				&mips_single_reg_req_gp_v0,
 				&mips_single_reg_req_gp_v1,
@@ -354,7 +443,7 @@ static ir_node *gen_Start(ir_node *const node)
 	for (size_t i = 0, n = get_method_n_params(type); i != n; ++i) {
 		ir_type *const param_type = get_method_param_type(type, i);
 		ir_mode *const param_mode = get_type_mode(param_type);
-		if (mode_is_int(param_mode)) {
+		if (mode_needs_gp_reg(param_mode)) {
 			if (n_gp == ARRAY_SIZE(param_regs_gp))
 				panic("memory parameters not supported yet");
 			outs[param_regs_gp[n_gp++]] = BE_START_REG;
@@ -366,12 +455,30 @@ static ir_node *gen_Start(ir_node *const node)
 	return be_new_Start(irg, outs);
 }
 
+static ir_node *gen_Store(ir_node *const node)
+{
+	ir_node *const old_val = get_Store_value(node);
+	ir_mode *const mode    = get_irn_mode(old_val);
+	if (mode_needs_gp_reg(mode)) {
+		unsigned const size = get_mode_size_bits(mode);
+		if (size == 32) {
+			dbg_info *const dbgi  = get_irn_dbg_info(node);
+			ir_node  *const block = be_transform_nodes_block(node);
+			ir_node  *const mem   = be_transform_node(get_Store_mem(node));
+			ir_node  *const val   = be_transform_node(old_val);
+			mips_addr const addr  = match_address(get_Store_ptr(node));
+			return new_bd_mips_sw(dbgi, block, mem, addr.base, val, addr.ent, addr.val);
+		}
+	}
+	panic("TODO");
+}
+
 static ir_node *gen_Sub(ir_node *const node)
 {
 	ir_node *const l    = get_Sub_left(node);
 	ir_node *const r    = get_Sub_right(node);
 	ir_mode *const mode = get_irn_mode(node);
-	if (mode_is_int(mode)) {
+	if (mode_needs_gp_reg(mode)) {
 		dbg_info *const dbgi  = get_irn_dbg_info(node);
 		ir_node  *const block = be_transform_nodes_block(node);
 		ir_node  *const new_l = be_transform_node(l);
@@ -391,17 +498,21 @@ static void mips_register_transformers(void)
 	be_set_transform_function(op_Cond,   gen_Cond);
 	be_set_transform_function(op_Const,  gen_Const);
 	be_set_transform_function(op_Jmp,    gen_Jmp);
+	be_set_transform_function(op_Load,   gen_Load);
 	be_set_transform_function(op_Minus,  gen_Minus);
 	be_set_transform_function(op_Mul,    gen_Mul);
 	be_set_transform_function(op_Or,     gen_Or);
 	be_set_transform_function(op_Phi,    gen_Phi);
 	be_set_transform_function(op_Return, gen_Return);
 	be_set_transform_function(op_Start,  gen_Start);
+	be_set_transform_function(op_Store,  gen_Store);
 	be_set_transform_function(op_Sub,    gen_Sub);
 
 	be_set_transform_proj_function(op_Cond,  gen_Proj_default);
+	be_set_transform_proj_function(op_Load,  gen_Proj_Load);
 	be_set_transform_proj_function(op_Proj,  gen_Proj_Proj);
 	be_set_transform_proj_function(op_Start, gen_Proj_Start);
+	be_set_transform_proj_function(op_Store, gen_Proj_Store);
 }
 
 static void mips_set_allocatable_regs(ir_graph *const irg)

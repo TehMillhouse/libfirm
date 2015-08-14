@@ -81,6 +81,16 @@ addiu => {
 	emit     => "addiu\t%D0, %S0, %I",
 },
 
+and => {
+	template => $binOp,
+	emit     => "and\t%D0, %S0, %S1",
+},
+
+andi => {
+	template => $immediateOp,
+	emit     => "andi\t%D0, %S0, %I",
+},
+
 jr => {
 	state    => "pinned",
 	op_flags => [ "cfopcode" ],
@@ -99,9 +109,24 @@ lui => {
 	emit      => "lui\t%D0, %I",
 },
 
+or => {
+	template => $binOp,
+	emit     => "or\t%D0, %S0, %S1",
+},
+
 ori => {
 	template => $immediateOp,
 	emit     => "ori\t%D0, %S0, %I",
+},
+
+xor => {
+	template => $binOp,
+	emit     => "xor\t%D0, %S0, %S1",
+},
+
+xori => {
+	template => $immediateOp,
+	emit     => "xori\t%D0, %S0, %I",
 },
 
 subu => {

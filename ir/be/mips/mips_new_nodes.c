@@ -5,6 +5,8 @@
 
 #include "mips_new_nodes_t.h"
 
+#include <inttypes.h>
+
 #include "gen_mips_new_nodes.h"
 #include "ircons_t.h"
 
@@ -48,6 +50,16 @@ void mips_dump_node(FILE *const F, ir_node const *const n, dump_reason_t const r
 	switch (reason) {
 		case dump_node_opcode_txt:
 			fprintf(F, "%s", get_irn_opname(n));
+			if (is_mips_addiu(n)) {
+				mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);
+				fprintf(F, " %+" PRId32, imm->val);
+			} else if (is_mips_andi(n) || is_mips_ori(n) || is_mips_xori(n)) {
+				mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);
+				fprintf(F, " 0x%04" PRIX32, (uint32_t)imm->val);
+			} else if (is_mips_lui(n)) {
+				mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);
+				fprintf(F, " 0x%08" PRIX32, (uint32_t)imm->val << 16);
+			}
 			break;
 
 		case dump_node_mode_txt:

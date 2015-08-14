@@ -109,6 +109,11 @@ lui => {
 	emit      => "lui\t%D0, %I",
 },
 
+mul => {
+	template => $binOp,
+	emit     => "mul\t%D0, %S0, %S1",
+},
+
 or => {
 	template => $binOp,
 	emit     => "or\t%D0, %S0, %S1",

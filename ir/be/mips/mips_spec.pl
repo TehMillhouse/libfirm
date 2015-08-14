@@ -46,6 +46,9 @@ my $mode_gp = "mode_Iu"; # TODO
 %init_attr = (
 	mips_attr_t =>
 		"be_info_init_irn(res, irn_flags, in_reqs, n_res);",
+	mips_cond_attr_t =>
+		"be_info_init_irn(res, irn_flags, in_reqs, n_res);\n".
+		"\tattr->cond = cond;",
 	mips_immediate_attr_t =>
 		"be_info_init_irn(res, irn_flags, in_reqs, n_res);\n".
 		"\tattr->val = val;",
@@ -57,6 +60,11 @@ my $binOp = {
 	out_reqs  => [ "cls-gp" ],
 	ins       => [ "left", "right" ],
 	outs      => [ "res" ],
+};
+
+my $condOp = {
+	attr_type => "mips_cond_attr_t",
+	attr      => "mips_cond_t const cond",
 };
 
 my $immediateOp = {
@@ -89,6 +97,33 @@ and => {
 andi => {
 	template => $immediateOp,
 	emit     => "andi\t%D0, %S0, %I",
+},
+
+b => {
+	state     => "pinned",
+	irn_flags => [ "simple_jump" ],
+	op_flags  => [ "cfopcode" ],
+	out_reqs  => [ "exec" ],
+},
+
+bcc => {
+	template  => $condOp,
+	state     => "pinned",
+	op_flags  => [ "cfopcode", "forking" ],
+	in_reqs   => [ "cls-gp", "cls-gp" ],
+	out_reqs  => [ "exec", "exec" ],
+	ins       => [ "left", "right" ],
+	outs      => [ "false", "true" ],
+},
+
+bccz => {
+	template  => $condOp,
+	state     => "pinned",
+	op_flags  => [ "cfopcode", "forking" ],
+	in_reqs   => [ "cls-gp" ],
+	out_reqs  => [ "exec", "exec" ],
+	ins       => [ "val" ],
+	outs      => [ "false", "true" ],
 },
 
 jr => {

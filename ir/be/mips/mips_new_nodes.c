@@ -25,6 +25,15 @@ int mips_attrs_equal(ir_node const *const a, ir_node const *const b)
 	return mips_attrs_equal_(a_attr, b_attr);
 }
 
+int mips_cond_attrs_equal(ir_node const *const a, ir_node const *const b)
+{
+	mips_cond_attr_t const *const a_attr = get_mips_cond_attr_const(a);
+	mips_cond_attr_t const *const b_attr = get_mips_cond_attr_const(b);
+	return
+		mips_attrs_equal_(&a_attr->attr, &b_attr->attr) &&
+		a_attr->cond == b_attr->cond;
+}
+
 int mips_immediate_attrs_equal(ir_node const *const a, ir_node const *const b)
 {
 	mips_immediate_attr_t const *const a_attr = get_mips_immediate_attr_const(a);

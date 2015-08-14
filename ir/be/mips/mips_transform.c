@@ -96,6 +96,51 @@ static ir_node *gen_And(ir_node *const node)
 	return gen_logic_op(node, &new_bd_mips_and, &new_bd_mips_andi);
 }
 
+static ir_node *gen_Cond(ir_node *const node)
+{
+	ir_node *const sel = get_Cond_selector(node);
+	if (is_Cmp(sel)) {
+		ir_node *const l    = get_Cmp_left(sel);
+		ir_node *const r    = get_Cmp_right(sel);
+		ir_mode *const mode = get_irn_mode(l);
+		if (mode_is_int(mode)) {
+			ir_relation const rel = get_Cmp_relation(sel);
+			switch (rel) {
+			{
+				mips_cond_t cc;
+			case ir_relation_equal:        cc = mips_cc_eq; goto bcc;
+			case ir_relation_less_greater: cc = mips_cc_ne; goto bcc;
+bcc:;
+				dbg_info *const dbgi  = get_irn_dbg_info(node);
+				ir_node  *const block = be_transform_nodes_block(node);
+				ir_node  *const new_l = be_transform_node(l);
+				ir_node  *const new_r = be_transform_node(r);
+				return new_bd_mips_bcc(dbgi, block, new_l, new_r, cc);
+			}
+
+			case ir_relation_less:
+			case ir_relation_greater:
+			case ir_relation_less_equal:
+			case ir_relation_greater_equal:
+				panic("TODO");
+
+			case ir_relation_false:
+			case ir_relation_less_equal_greater:
+			case ir_relation_unordered:
+			case ir_relation_unordered_equal:
+			case ir_relation_unordered_less:
+			case ir_relation_unordered_less_equal:
+			case ir_relation_unordered_greater:
+			case ir_relation_unordered_greater_equal:
+			case ir_relation_unordered_less_greater:
+			case ir_relation_true:
+				panic("invalid relation");
+			}
+		}
+	}
+	panic("TODO");
+}
+
 static ir_node *gen_Const(ir_node *const node)
 {
 	ir_mode *const mode = get_irn_mode(node);;
@@ -135,6 +180,13 @@ static ir_node *gen_Eor(ir_node *const node)
 	return gen_logic_op(node, &new_bd_mips_xor, &new_bd_mips_xori);
 }
 
+static ir_node *gen_Jmp(ir_node *const node)
+{
+	dbg_info *const dbgi  = get_irn_dbg_info(node);
+	ir_node  *const block = be_transform_nodes_block(node);
+	return new_bd_mips_b(dbgi, block);
+}
+
 static ir_node *gen_Minus(ir_node *const node)
 {
 	ir_node *const val  = get_Minus_op(node);
@@ -170,6 +222,20 @@ static ir_node *gen_Or(ir_node *const node)
 	return gen_logic_op(node, &new_bd_mips_or, &new_bd_mips_ori);
 }
 
+static ir_node *gen_Phi(ir_node *const node)
+{
+	arch_register_req_t       const *req;
+	ir_mode                   *const mode = get_irn_mode(node);
+	if (mode_is_int(mode)) {
+		req = &mips_class_reg_req_gp;
+	} else if (mode == mode_M) {
+		req = arch_memory_req;
+	} else {
+		panic("unhandled mode");
+	}
+	return be_transform_phi(node, req);
+}
+
 static ir_node *gen_Proj_Proj_Start(ir_node *const node)
 {
 	assert(get_Proj_num(get_Proj_pred(node)) == pn_Start_T_args);
@@ -200,6 +266,14 @@ static ir_node *gen_Proj_Start(ir_node *const node)
 	case pn_Start_T_args:       return new_r_Bad(irg, mode_T);
 	}
 	panic("unexpected Proj");
+}
+
+static ir_node *gen_Proj_default(ir_node *node)
+{
+	ir_node *const pred     = get_Proj_pred(node);
+	ir_node *const new_pred = be_transform_node(pred);
+	unsigned const pn       = get_Proj_num(node);
+	return be_new_Proj(new_pred, pn);
 }
 
 static ir_node *gen_Return(ir_node *const node)
@@ -314,14 +388,18 @@ static void mips_register_transformers(void)
 	be_set_transform_function(op_Add,    gen_Add);
 	be_set_transform_function(op_And,    gen_And);
 	be_set_transform_function(op_Eor,    gen_Eor);
+	be_set_transform_function(op_Cond,   gen_Cond);
 	be_set_transform_function(op_Const,  gen_Const);
+	be_set_transform_function(op_Jmp,    gen_Jmp);
 	be_set_transform_function(op_Minus,  gen_Minus);
 	be_set_transform_function(op_Mul,    gen_Mul);
 	be_set_transform_function(op_Or,     gen_Or);
+	be_set_transform_function(op_Phi,    gen_Phi);
 	be_set_transform_function(op_Return, gen_Return);
 	be_set_transform_function(op_Start,  gen_Start);
 	be_set_transform_function(op_Sub,    gen_Sub);
 
+	be_set_transform_proj_function(op_Cond,  gen_Proj_default);
 	be_set_transform_proj_function(op_Proj,  gen_Proj_Proj);
 	be_set_transform_proj_function(op_Start, gen_Proj_Start);
 }

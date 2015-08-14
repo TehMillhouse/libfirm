@@ -14,13 +14,21 @@
 #include "mips_emitter.h"
 #include "mips_transform.h"
 
+static int mips_is_mux_allowed(ir_node *const sel, ir_node *const mux_false, ir_node *const mux_true)
+{
+	(void)sel;
+	(void)mux_false;
+	(void)mux_true;
+	return false;
+}
+
 static backend_params mips_backend_params = {
 	.byte_order_big_endian         = false,
 	.pic_supported                 = false,
 	.unaligned_memaccess_supported = false,
 	.modulo_shift                  = 32,
 	.dep_param                     = NULL, // TODO
-	.allow_ifconv                  = NULL, // TODO
+	.allow_ifconv                  = &mips_is_mux_allowed,
 	.machine_size                  = 32,
 	.mode_float_arithmetic         = NULL,  /* will be set later */ // TODO
 	.type_long_long                = NULL,  /* will be set later */ // TODO

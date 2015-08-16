@@ -146,6 +146,12 @@ emit_R:
 			goto emit_R;
 		}
 
+		case 'd': {
+			int const val = va_arg(ap, int);
+			be_emit_irprintf("%d", val);
+			break;
+		}
+
 		default:
 unknown:
 			panic("unknown format conversion");
@@ -169,6 +175,12 @@ static void emit_be_Copy(ir_node const *const node)
 	} else {
 		panic("unexpected register class");
 	}
+}
+
+static void emit_be_IncSP(ir_node const *const node)
+{
+	int const offs = -be_get_IncSP_offset(node);
+	mips_emitf(node, "addiu\t%D0, %S0, %d", offs);
 }
 
 static void emit_mips_b(ir_node const *const node)
@@ -199,6 +211,7 @@ static void mips_register_emitters(void)
 	mips_register_spec_emitters();
 
 	be_set_emitter(op_be_Copy,  emit_be_Copy);
+	be_set_emitter(op_be_IncSP, emit_be_IncSP);
 	be_set_emitter(op_mips_b,   emit_mips_b);
 	be_set_emitter(op_mips_bcc, emit_mips_bcc);
 }

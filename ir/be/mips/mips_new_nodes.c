@@ -73,6 +73,8 @@ void mips_dump_node(FILE *const F, ir_node const *const n, dump_reason_t const r
 			} else if (is_mips_andi(n) || is_mips_ori(n) || is_mips_xori(n)) {
 				mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);
 				fprintf(F, " 0x%04" PRIX32, (uint32_t)imm->val);
+			} else if (is_mips_jal(n)) {
+				dump_immediate(F, NULL, n);
 			} else if (is_mips_lui(n)) {
 				dump_immediate(F, "%hi", n);
 			}

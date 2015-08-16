@@ -30,11 +30,37 @@ static unsigned const callee_saves[] = {
 	REG_S7,
 };
 
+static unsigned const caller_saves[] = {
+	// TODO REG_AT,
+	REG_V0,
+	REG_V1,
+	REG_A0,
+	REG_A1,
+	REG_A2,
+	REG_A3,
+	REG_T0,
+	REG_T1,
+	REG_T2,
+	REG_T3,
+	REG_T4,
+	REG_T5,
+	REG_T6,
+	REG_T7,
+	REG_T8,
+	REG_T9,
+	REG_RA,
+};
+
 static unsigned const param_regs_gp[] = {
 	REG_A0,
 	REG_A1,
 	REG_A2,
 	REG_A3,
+};
+
+static unsigned const result_regs_gp[] = {
+	REG_V0,
+	REG_V1,
 };
 
 static ir_node *get_Start_sp(ir_graph *const irg)
@@ -99,6 +125,54 @@ static ir_node *gen_logic_op(ir_node *const node, cons_binop *const cons, cons_b
 static ir_node *gen_And(ir_node *const node)
 {
 	return gen_logic_op(node, &new_bd_mips_and, &new_bd_mips_andi);
+}
+
+static ir_node *gen_Call(ir_node *const node)
+{
+	ir_node *const ptr = get_Call_ptr(node);
+	if (is_Address(ptr)) {
+		ir_graph *const irg = get_irn_irg(node);
+
+		unsigned                          p        = n_mips_jal_first_argument;
+		unsigned                    const n_params = get_Call_n_params(node);
+		unsigned                    const n_ins    = p + n_params;
+		arch_register_req_t const **const reqs     = be_allocate_in_reqs(irg, n_ins);
+		ir_node                          *ins[n_ins];
+
+		ir_node *const mem = get_Call_mem(node);
+		ins[n_mips_jal_mem]  = be_transform_node(mem);
+		reqs[n_mips_jal_mem] = arch_memory_req;
+
+		unsigned n_gp = 0;
+		for (size_t i = 0; i != n_params; ++i) {
+			ir_node *const param      = get_Call_param(node, i);
+			ir_mode *const param_mode = get_irn_mode(param);
+			if (mode_needs_gp_reg(param_mode)) {
+				if (n_gp == ARRAY_SIZE(param_regs_gp))
+					panic("memory parameters not supported yet");
+				ins[p]  = be_transform_node(param);
+				reqs[p] = mips_registers[param_regs_gp[n_gp++]].single_req;
+				++p;
+			} else {
+				panic("unsupported param mode");
+			}
+		}
+
+		unsigned const n_res = pn_mips_jal_first_result + ARRAY_SIZE(caller_saves);
+
+		dbg_info  *const dbgi   = get_irn_dbg_info(node);
+		ir_node   *const block  = be_transform_nodes_block(node);
+		ir_entity *const callee = get_Address_entity(ptr);
+		ir_node   *const jal    = new_bd_mips_jal(dbgi, block, n_ins, ins, reqs, n_res, callee);
+
+		arch_set_irn_register_req_out(jal, pn_mips_jal_mem, arch_memory_req);
+		for (size_t i = 0; i != ARRAY_SIZE(caller_saves); ++i) {
+			arch_set_irn_register_req_out(jal, pn_mips_jal_first_result + i, mips_registers[caller_saves[i]].single_req);
+		}
+
+		return jal;
+	}
+	panic("TODO");
 }
 
 static ir_node *gen_Cond(ir_node *const node)
@@ -294,6 +368,45 @@ static ir_node *gen_Phi(ir_node *const node)
 	return be_transform_phi(node, req);
 }
 
+static ir_node *gen_Proj_Call(ir_node *const node)
+{
+	ir_node *const call     = get_Proj_pred(node);
+	ir_node *const new_call = be_transform_node(call);
+	assert(is_mips_jal(new_call));
+	switch ((pn_Call)get_Proj_num(node)) {
+	case pn_Call_M: return be_new_Proj(new_call, pn_mips_jal_mem);
+	case pn_Call_T_result:
+	case pn_Call_X_regular:
+	case pn_Call_X_except:
+		panic("TODO");
+	}
+	panic("unexpected Proj");
+}
+
+static ir_node *gen_Proj_Proj_Call(ir_node *const node)
+{
+	ir_node *const pred = get_Proj_pred(node);
+	assert(get_Proj_num(pred) == pn_Call_T_result);
+
+	ir_node *const call     = get_Proj_pred(pred);
+	ir_node *const new_call = be_transform_node(call);
+
+	ir_mode *const mode = get_irn_mode(node);
+	if (mode_needs_gp_reg(mode)) {
+		unsigned const num = get_Proj_num(node);
+		if (num >= ARRAY_SIZE(result_regs_gp))
+			panic("too many gp results");
+
+		arch_register_req_t const *const req = mips_registers[result_regs_gp[num]].single_req;
+		be_foreach_out(new_call, i) {
+			arch_register_req_t const *const out_req = arch_get_irn_register_req_out(new_call, i);
+			if (out_req == req)
+				return be_new_Proj(new_call, i);
+		}
+	}
+	panic("TODO");
+}
+
 static ir_node *gen_Proj_Load(ir_node *const node)
 {
 	ir_node *const pred = get_Proj_pred(node);
@@ -324,7 +437,9 @@ static ir_node *gen_Proj_Proj(ir_node *const node)
 {
 	ir_node *const pred      = get_Proj_pred(node);
 	ir_node *const pred_pred = get_Proj_pred(pred);
-	if (is_Start(pred_pred)) {
+	if (is_Call(pred_pred)) {
+		return gen_Proj_Proj_Call(node);
+	} else if (is_Start(pred_pred)) {
 		return gen_Proj_Proj_Start(node);
 	} else {
 		panic("unexpected Proj-Proj");
@@ -391,14 +506,10 @@ static ir_node *gen_Return(ir_node *const node)
 		ir_node *const res0     = get_Return_res(node, 0);
 		ir_mode *const res_mode = get_irn_mode(res0);
 		if (mode_needs_gp_reg(res_mode)) {
-			static arch_register_req_t const *const res_reqs[] = {
-				&mips_single_reg_req_gp_v0,
-				&mips_single_reg_req_gp_v1,
-			};
 			for (size_t i = 0; i != n_res; ++i) {
 				ir_node *const res = get_Return_res(node, i);
 				in[p]   = be_transform_node(res);
-				reqs[p] = res_reqs[i];
+				reqs[p] = mips_registers[result_regs_gp[i]].single_req;
 				++p;
 			}
 		} else {
@@ -494,6 +605,7 @@ static void mips_register_transformers(void)
 
 	be_set_transform_function(op_Add,    gen_Add);
 	be_set_transform_function(op_And,    gen_And);
+	be_set_transform_function(op_Call,   gen_Call);
 	be_set_transform_function(op_Eor,    gen_Eor);
 	be_set_transform_function(op_Cond,   gen_Cond);
 	be_set_transform_function(op_Const,  gen_Const);
@@ -508,6 +620,7 @@ static void mips_register_transformers(void)
 	be_set_transform_function(op_Store,  gen_Store);
 	be_set_transform_function(op_Sub,    gen_Sub);
 
+	be_set_transform_proj_function(op_Call,  gen_Proj_Call);
 	be_set_transform_proj_function(op_Cond,  gen_Proj_default);
 	be_set_transform_proj_function(op_Load,  gen_Proj_Load);
 	be_set_transform_proj_function(op_Proj,  gen_Proj_Proj);

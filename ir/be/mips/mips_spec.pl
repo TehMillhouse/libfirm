@@ -185,6 +185,16 @@ ori => {
 	emit     => "ori\t%D0, %S0, %I",
 },
 
+slti => {
+	template => $immediateOp,
+	emit     => "slti\t%D0, %S0, %I",
+},
+
+sltiu => {
+	template => $immediateOp,
+	emit     => "sltiu\t%D0, %S0, %I",
+},
+
 sw => {
 	op_flags  => [ "uses_memory" ],
 	state     => "exc_pinned",

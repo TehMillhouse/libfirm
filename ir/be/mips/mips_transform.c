@@ -5,6 +5,8 @@
 
 #include "mips_transform.h"
 
+#include <limits.h>
+
 #include "beirg.h"
 #include "benode.h"
 #include "betranshlp.h"
@@ -175,6 +177,13 @@ static ir_node *gen_Call(ir_node *const node)
 	panic("TODO");
 }
 
+static ir_node *make_bcc(ir_node *const cond, ir_node *const l, ir_node *const r, mips_cond_t const cc)
+{
+	dbg_info *const dbgi  = get_irn_dbg_info(cond);
+	ir_node  *const block = be_transform_nodes_block(cond);
+	return new_bd_mips_bcc(dbgi, block, l, r, cc);
+}
+
 static ir_node *gen_Cond(ir_node *const node)
 {
 	ir_node *const sel = get_Cond_selector(node);
@@ -190,18 +199,44 @@ static ir_node *gen_Cond(ir_node *const node)
 			case ir_relation_equal:        cc = mips_cc_eq; goto bcc;
 			case ir_relation_less_greater: cc = mips_cc_ne; goto bcc;
 bcc:;
-				dbg_info *const dbgi  = get_irn_dbg_info(node);
-				ir_node  *const block = be_transform_nodes_block(node);
-				ir_node  *const new_l = be_transform_node(l);
-				ir_node  *const new_r = be_transform_node(r);
-				return new_bd_mips_bcc(dbgi, block, new_l, new_r, cc);
+				ir_node *const new_l = be_transform_node(l);
+				ir_node *const new_r = be_transform_node(r);
+				return make_bcc(node, new_l, new_r, cc);
 			}
 
-			case ir_relation_less:
 			case ir_relation_greater:
-			case ir_relation_less_equal:
+			case ir_relation_less:
 			case ir_relation_greater_equal:
 				panic("TODO");
+
+			case ir_relation_less_equal: {
+				if (is_Const(r)) {
+					long val = get_Const_long(r);
+					if (val != LONG_MAX) {
+						val += 1; /* set less than */
+						cons_binop_imm *cons;
+						if (mode_is_signed(mode)) {
+							if (is_simm16(val)) {
+								cons = &new_bd_mips_slti;
+								goto bcc_ne;
+							}
+						} else {
+							if (is_uimm16(val)) {
+								cons = &new_bd_mips_sltiu;
+bcc_ne:;
+								dbg_info *const dbgi  = get_irn_dbg_info(sel);
+								ir_node  *const block = be_transform_nodes_block(sel);
+								ir_node  *const new_l = be_transform_node(l);
+								ir_node  *const slti  = cons(dbgi, block, new_l, NULL, val);
+								ir_graph *const irg   = get_irn_irg(node);
+								ir_node  *const zero  = get_Start_zero(irg);
+								return make_bcc(node, slti, zero, mips_cc_ne);
+							}
+						}
+					}
+				}
+				panic("TODO");
+			}
 
 			case ir_relation_false:
 			case ir_relation_less_equal_greater:

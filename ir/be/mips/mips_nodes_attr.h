@@ -55,4 +55,6 @@ static inline mips_immediate_attr_t const *get_mips_immediate_attr_const(ir_node
 	return (mips_immediate_attr_t const*)get_irn_generic_attr_const(node);
 }
 
+char const *mips_get_cond_name(mips_cond_t cond);
+
 #endif

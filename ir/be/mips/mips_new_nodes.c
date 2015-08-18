@@ -73,6 +73,9 @@ void mips_dump_node(FILE *const F, ir_node const *const n, dump_reason_t const r
 			} else if (is_mips_andi(n) || is_mips_ori(n) || is_mips_xori(n)) {
 				mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);
 				fprintf(F, " 0x%04" PRIX32, (uint32_t)imm->val);
+			} else if (is_mips_bcc(n)) {
+				mips_cond_attr_t const *const cond = get_mips_cond_attr_const(n);
+				fprintf(F, " %s", mips_get_cond_name(cond->cond));
 			} else if (is_mips_jal(n)) {
 				dump_immediate(F, NULL, n);
 			} else if (is_mips_lui(n)) {

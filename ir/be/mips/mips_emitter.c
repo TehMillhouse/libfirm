@@ -26,19 +26,6 @@ static inline ir_node *get_target_block(ir_node const *const node)
 	return (ir_node*)get_irn_link(node);
 }
 
-static char const *get_cond_name(mips_cond_t const cond)
-{
-	switch (cond) {
-	case mips_cc_eq:  return "eq";
-	case mips_cc_ne:  return "ne";
-	case mips_cc_ltz: return "ltz";
-	case mips_cc_gez: return "gez";
-	case mips_cc_lez: return "lez";
-	case mips_cc_gtz: return "gtz";
-	}
-	panic("invalid cond");
-}
-
 static void emit_immediate(char const *const prefix, ir_node const *const node)
 {
 	mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(node);
@@ -100,7 +87,7 @@ void mips_emitf(ir_node const *const node, char const *fmt, ...)
 
 		case 'C': {
 			mips_cond_attr_t const *const cond = get_mips_cond_attr_const(node);
-			be_emit_string(get_cond_name(cond->cond));
+			be_emit_string(mips_get_cond_name(cond->cond));
 			break;
 		}
 

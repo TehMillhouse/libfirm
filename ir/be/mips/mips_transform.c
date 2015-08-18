@@ -85,6 +85,12 @@ static inline bool is_uimm16(long const val)
 	return 0 <= val && val < 65536;
 }
 
+static ir_node *make_address(dbg_info *const dbgi, ir_node *const block, ir_entity *const ent, int32_t const val)
+{
+	ir_node *const lui = new_bd_mips_lui(dbgi, block, ent, val);
+	return new_bd_mips_addiu(dbgi, block, lui, ent, val);
+}
+
 static ir_node *gen_Add(ir_node *const node)
 {
 	ir_node *const l    = get_Add_left(node);
@@ -93,16 +99,30 @@ static ir_node *gen_Add(ir_node *const node)
 	if (mode_needs_gp_reg(mode)) {
 		dbg_info *const dbgi  = get_irn_dbg_info(node);
 		ir_node  *const block = be_transform_nodes_block(node);
-		ir_node  *const new_l = be_transform_node(l);
 		if (is_Const(r)) {
 			long const val = get_Const_long(r);
-			if (is_simm16(val))
+			if (is_Address(l)) {
+				ir_entity *const ent = get_Address_entity(node);
+				return make_address(dbgi, block, ent, val);
+			}
+			if (is_simm16(val)) {
+				ir_node *const new_l = be_transform_node(l);
 				return new_bd_mips_addiu(dbgi, block, new_l, NULL, val);
+			}
 		}
+		ir_node *const new_l = be_transform_node(l);
 		ir_node *const new_r = be_transform_node(r);
 		return new_bd_mips_addu(dbgi, block, new_l, new_r);
 	}
 	panic("TODO");
+}
+
+static ir_node *gen_Address(ir_node *const node)
+{
+	dbg_info  *const dbgi  = get_irn_dbg_info(node);
+	ir_node   *const block = be_transform_nodes_block(node);
+	ir_entity *const ent   = get_Address_entity(node);
+	return make_address(dbgi, block, ent, 0);
 }
 
 typedef ir_node *cons_binop(dbg_info*, ir_node*, ir_node*, ir_node*);
@@ -638,22 +658,23 @@ static void mips_register_transformers(void)
 {
 	be_start_transform_setup();
 
-	be_set_transform_function(op_Add,    gen_Add);
-	be_set_transform_function(op_And,    gen_And);
-	be_set_transform_function(op_Call,   gen_Call);
-	be_set_transform_function(op_Eor,    gen_Eor);
-	be_set_transform_function(op_Cond,   gen_Cond);
-	be_set_transform_function(op_Const,  gen_Const);
-	be_set_transform_function(op_Jmp,    gen_Jmp);
-	be_set_transform_function(op_Load,   gen_Load);
-	be_set_transform_function(op_Minus,  gen_Minus);
-	be_set_transform_function(op_Mul,    gen_Mul);
-	be_set_transform_function(op_Or,     gen_Or);
-	be_set_transform_function(op_Phi,    gen_Phi);
-	be_set_transform_function(op_Return, gen_Return);
-	be_set_transform_function(op_Start,  gen_Start);
-	be_set_transform_function(op_Store,  gen_Store);
-	be_set_transform_function(op_Sub,    gen_Sub);
+	be_set_transform_function(op_Add,     gen_Add);
+	be_set_transform_function(op_Address, gen_Address);
+	be_set_transform_function(op_And,     gen_And);
+	be_set_transform_function(op_Call,    gen_Call);
+	be_set_transform_function(op_Eor,     gen_Eor);
+	be_set_transform_function(op_Cond,    gen_Cond);
+	be_set_transform_function(op_Const,   gen_Const);
+	be_set_transform_function(op_Jmp,     gen_Jmp);
+	be_set_transform_function(op_Load,    gen_Load);
+	be_set_transform_function(op_Minus,   gen_Minus);
+	be_set_transform_function(op_Mul,     gen_Mul);
+	be_set_transform_function(op_Or,      gen_Or);
+	be_set_transform_function(op_Phi,     gen_Phi);
+	be_set_transform_function(op_Return,  gen_Return);
+	be_set_transform_function(op_Start,   gen_Start);
+	be_set_transform_function(op_Store,   gen_Store);
+	be_set_transform_function(op_Sub,     gen_Sub);
 
 	be_set_transform_proj_function(op_Call,  gen_Proj_Call);
 	be_set_transform_proj_function(op_Cond,  gen_Proj_default);

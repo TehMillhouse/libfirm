@@ -649,20 +649,36 @@ static ir_node *gen_Start(ir_node *const node)
 	return be_new_Start(irg, outs);
 }
 
+typedef ir_node *cons_storeop(dbg_info*, ir_node*, ir_node*, ir_node*, ir_node*, ir_entity*, int32_t);
+
 static ir_node *gen_Store(ir_node *const node)
 {
-	ir_node *const old_val = get_Store_value(node);
+	ir_node       *old_val = get_Store_value(node);
 	ir_mode *const mode    = get_irn_mode(old_val);
 	if (mode_needs_gp_reg(mode)) {
+		cons_storeop  *cons;
 		unsigned const size = get_mode_size_bits(mode);
-		if (size == 32) {
-			dbg_info *const dbgi  = get_irn_dbg_info(node);
-			ir_node  *const block = be_transform_nodes_block(node);
-			ir_node  *const mem   = be_transform_node(get_Store_mem(node));
-			ir_node  *const val   = be_transform_node(old_val);
-			mips_addr const addr  = match_address(get_Store_ptr(node));
-			return new_bd_mips_sw(dbgi, block, mem, addr.base, val, addr.ent, addr.val);
+		if (size == 8) {
+			cons = &new_bd_mips_sb;
+		} else if (size == 16) {
+			cons = &new_bd_mips_sh;
+		} else if (size == 32) {
+			cons = &new_bd_mips_sw;
+		} else {
+			panic("invalid store");
 		}
+		if (is_Conv(old_val)) {
+			ir_node *const src_val  = get_Conv_op(old_val);
+			ir_mode *const src_mode = get_irn_mode(src_val);
+			if (mode_needs_gp_reg(src_mode) && get_mode_size_bits(src_mode) >= size)
+				old_val = src_val;
+		}
+		dbg_info *const dbgi  = get_irn_dbg_info(node);
+		ir_node  *const block = be_transform_nodes_block(node);
+		ir_node  *const mem   = be_transform_node(get_Store_mem(node));
+		ir_node  *const val   = be_transform_node(old_val);
+		mips_addr const addr  = match_address(get_Store_ptr(node));
+		return cons(dbgi, block, mem, addr.base, val, addr.ent, addr.val);
 	}
 	panic("TODO");
 }

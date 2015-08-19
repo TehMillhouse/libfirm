@@ -89,6 +89,17 @@ my $loadOp = {
 	attr      => "ir_entity *const ent, int32_t const val",
 };
 
+my $storeOp = {
+	op_flags  => [ "uses_memory" ],
+	state     => "exc_pinned",
+	in_reqs   => [ "mem", "cls-gp", "cls-gp" ],
+	out_reqs  => [ "mem" ],
+	ins       => [ "mem", "base", "value" ],
+	outs      => [ "M" ],
+	attr_type => "mips_immediate_attr_t",
+	attr      => "ir_entity *const ent, int32_t const val",
+};
+
 %nodes = (
 
 addu => {
@@ -219,16 +230,19 @@ sltiu => {
 	emit     => "sltiu\t%D0, %S0, %I",
 },
 
+sb => {
+	template => $storeOp,
+	emit     => "sb\t%S2, %A1",
+},
+
+sh => {
+	template => $storeOp,
+	emit     => "sh\t%S2, %A1",
+},
+
 sw => {
-	op_flags  => [ "uses_memory" ],
-	state     => "exc_pinned",
-	in_reqs   => [ "mem", "cls-gp", "cls-gp" ],
-	out_reqs  => [ "mem" ],
-	ins       => [ "mem", "base", "value" ],
-	outs      => [ "M" ],
-	attr_type => "mips_immediate_attr_t",
-	attr      => "ir_entity *const ent, int32_t const val",
-	emit      => "sw\t%S2, %A1",
+	template => $storeOp,
+	emit     => "sw\t%S2, %A1",
 },
 
 xor => {

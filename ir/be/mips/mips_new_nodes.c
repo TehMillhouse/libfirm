@@ -67,7 +67,7 @@ static bool is_mips_memop(ir_node const *const n)
 {
 	return
 		is_mips_lb(n) || is_mips_lh(n) || is_mips_lw(n) || is_mips_lbu(n) || is_mips_lhu(n) ||
-		is_mips_sw(n);
+		is_mips_sb(n) || is_mips_sh(n) || is_mips_sw(n);
 }
 
 void mips_dump_node(FILE *const F, ir_node const *const n, dump_reason_t const reason)

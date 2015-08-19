@@ -170,6 +170,20 @@ static void emit_be_IncSP(ir_node const *const node)
 	mips_emitf(node, "addiu\t%D0, %S0, %d", offs);
 }
 
+static void emit_be_Perm(ir_node const *const node)
+{
+	arch_register_t const *const out = arch_get_irn_register_out(node, 0);
+	if (out->cls == &mips_reg_classes[CLASS_mips_gp]) {
+		mips_emitf(node,
+				"xor\t%D0, %D0, %D1\n"
+				"xor\t%D1, %D0, %D1\n"
+				"xor\t%D0, %D0, %D1"
+		);
+	} else {
+		panic("unexpected register class");
+	}
+}
+
 static void emit_mips_b(ir_node const *const node)
 {
 	ir_node *const block = get_nodes_block(node);
@@ -199,6 +213,7 @@ static void mips_register_emitters(void)
 
 	be_set_emitter(op_be_Copy,  emit_be_Copy);
 	be_set_emitter(op_be_IncSP, emit_be_IncSP);
+	be_set_emitter(op_be_Perm,  emit_be_Perm);
 	be_set_emitter(op_mips_b,   emit_mips_b);
 	be_set_emitter(op_mips_bcc, emit_mips_bcc);
 }

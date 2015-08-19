@@ -225,6 +225,36 @@ ori => {
 	emit     => "ori\t%D0, %S0, %I",
 },
 
+sll => {
+	template => $immediateOp,
+	emit     => "sll\t%D0, %S0, %I",
+},
+
+sllv => {
+	template => $binOp,
+	emit     => "sllv\t%D0, %S0, %S1",
+},
+
+sra => {
+	template => $immediateOp,
+	emit     => "sra\t%D0, %S0, %I",
+},
+
+srav => {
+	template => $binOp,
+	emit     => "srav\t%D0, %S0, %S1",
+},
+
+srl => {
+	template => $immediateOp,
+	emit     => "srl\t%D0, %S0, %I",
+},
+
+srlv => {
+	template => $binOp,
+	emit     => "srlv\t%D0, %S0, %S1",
+},
+
 slti => {
 	template => $immediateOp,
 	emit     => "slti\t%D0, %S0, %I",

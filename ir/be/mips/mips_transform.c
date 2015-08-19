@@ -275,6 +275,24 @@ bcc_ne:;
 	panic("TODO");
 }
 
+static ir_node *gen_Conv(ir_node *const node)
+{
+	ir_node *const val      = get_Conv_op(node);
+	ir_mode *const src_mode = get_irn_mode(val);
+	ir_mode *const dst_mode = get_irn_mode(node);
+	if (mode_needs_gp_reg(dst_mode) && mode_needs_gp_reg(src_mode)) {
+		unsigned const dst_size = get_mode_size_bits(dst_mode);
+		if (dst_size == 32) {
+			if (is_Proj(val)) {
+				ir_node *const pred = get_Proj_pred(val);
+				if (is_Load(pred))
+					return be_transform_node(val);
+			}
+		}
+	}
+	panic("TODO");
+}
+
 static ir_node *gen_Const(ir_node *const node)
 {
 	ir_mode *const mode = get_irn_mode(node);;
@@ -358,18 +376,28 @@ static mips_addr match_address(ir_node *ptr)
 	return addr;
 }
 
+typedef ir_node *cons_loadop(dbg_info*, ir_node*, ir_node*, ir_node*, ir_entity*, int32_t);
+
 static ir_node *gen_Load(ir_node *const node)
 {
 	ir_mode *const mode = get_Load_mode(node);
 	if (mode_needs_gp_reg(mode)) {
+		cons_loadop   *cons;
 		unsigned const size = get_mode_size_bits(mode);
-		if (size == 32) {
-			dbg_info *const dbgi  = get_irn_dbg_info(node);
-			ir_node  *const block = be_transform_nodes_block(node);
-			ir_node  *const mem   = be_transform_node(get_Load_mem(node));
-			mips_addr const addr  = match_address(get_Load_ptr(node));
-			return new_bd_mips_lw(dbgi, block, mem, addr.base, addr.ent, addr.val);
+		if (size == 8) {
+			cons = mode_is_signed(mode) ? &new_bd_mips_lb : &new_bd_mips_lbu;
+		} else if (size == 16) {
+			cons = mode_is_signed(mode) ? &new_bd_mips_lh : &new_bd_mips_lhu;
+		} else if (size == 32) {
+			cons = new_bd_mips_lw;
+		} else {
+			panic("invalid load");
 		}
+		dbg_info *const dbgi  = get_irn_dbg_info(node);
+		ir_node  *const block = be_transform_nodes_block(node);
+		ir_node  *const mem   = be_transform_node(get_Load_mem(node));
+		mips_addr const addr  = match_address(get_Load_ptr(node));
+		return cons(dbgi, block, mem, addr.base, addr.ent, addr.val);
 	}
 	panic("TODO");
 }
@@ -664,6 +692,7 @@ static void mips_register_transformers(void)
 	be_set_transform_function(op_Call,    gen_Call);
 	be_set_transform_function(op_Eor,     gen_Eor);
 	be_set_transform_function(op_Cond,    gen_Cond);
+	be_set_transform_function(op_Conv,    gen_Conv);
 	be_set_transform_function(op_Const,   gen_Const);
 	be_set_transform_function(op_Jmp,     gen_Jmp);
 	be_set_transform_function(op_Load,    gen_Load);

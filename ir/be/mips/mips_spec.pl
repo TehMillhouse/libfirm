@@ -78,6 +78,17 @@ my $immediateOp = {
 	attr      => "ir_entity *const ent, int32_t const val",
 };
 
+my $loadOp = {
+	op_flags  => [ "uses_memory" ],
+	state     => "exc_pinned",
+	in_reqs   => [ "mem", "cls-gp" ],
+	out_reqs  => [ "mem", "cls-gp" ],
+	ins       => [ "mem", "base" ],
+	outs      => [ "M", "res" ],
+	attr_type => "mips_immediate_attr_t",
+	attr      => "ir_entity *const ent, int32_t const val",
+};
+
 %nodes = (
 
 addu => {
@@ -158,16 +169,29 @@ lui => {
 	emit      => "lui\t%D0, %H",
 },
 
+lb => {
+	template => $loadOp,
+	emit     => "lb\t%D1, %A1",
+},
+
+lbu => {
+	template => $loadOp,
+	emit     => "lbu\t%D1, %A1",
+},
+
+lh => {
+	template => $loadOp,
+	emit     => "lh\t%D1, %A1",
+},
+
+lhu => {
+	template => $loadOp,
+	emit     => "lhu\t%D1, %A1",
+},
+
 lw => {
-	op_flags  => [ "uses_memory" ],
-	state     => "exc_pinned",
-	in_reqs   => [ "mem", "cls-gp" ],
-	out_reqs  => [ "mem", "cls-gp" ],
-	ins       => [ "mem", "base" ],
-	outs      => [ "M", "res" ],
-	attr_type => "mips_immediate_attr_t",
-	attr      => "ir_entity *const ent, int32_t const val",
-	emit      => "lw\t%D1, %A1",
+	template => $loadOp,
+	emit     => "lw\t%D1, %A1",
 },
 
 mul => {

@@ -63,12 +63,19 @@ static void dump_immediate(FILE *const F, char const *const prefix, ir_node cons
 	}
 }
 
+static bool is_mips_memop(ir_node const *const n)
+{
+	return
+		is_mips_lb(n) || is_mips_lh(n) || is_mips_lw(n) || is_mips_lbu(n) || is_mips_lhu(n) ||
+		is_mips_sw(n);
+}
+
 void mips_dump_node(FILE *const F, ir_node const *const n, dump_reason_t const reason)
 {
 	switch (reason) {
 		case dump_node_opcode_txt:
 			fprintf(F, "%s", get_irn_opname(n));
-			if (is_mips_addiu(n) || is_mips_lw(n) || is_mips_sw(n)) {
+			if (is_mips_addiu(n) || is_mips_memop(n)) {
 				dump_immediate(F, "%lo", n);
 			} else if (is_mips_andi(n) || is_mips_ori(n) || is_mips_xori(n)) {
 				mips_immediate_attr_t const *const imm = get_mips_immediate_attr_const(n);

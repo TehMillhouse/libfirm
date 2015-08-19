@@ -210,6 +210,11 @@ mul => {
 	emit     => "mul\t%D0, %S0, %S1",
 },
 
+nor => {
+	template => $binOp,
+	emit     => "nor\t%D0, %S0, %S1",
+},
+
 or => {
 	template => $binOp,
 	emit     => "or\t%D0, %S0, %S1",

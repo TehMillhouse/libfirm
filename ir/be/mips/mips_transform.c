@@ -16,6 +16,8 @@
 #include "panic.h"
 #include "util.h"
 
+static be_stack_env_t stack_env;
+
 static bool mode_needs_gp_reg(ir_mode *const mode)
 {
 	return mode_is_int(mode) || mode_is_reference(mode);
@@ -170,6 +172,10 @@ static ir_node *gen_Call(ir_node *const node)
 		ins[n_mips_jal_mem]  = be_transform_node(mem);
 		reqs[n_mips_jal_mem] = arch_memory_req;
 
+		ir_node *const sp = get_Start_sp(irg);
+		ins[n_mips_jal_stack]  = sp;
+		reqs[n_mips_jal_stack] = &mips_single_reg_req_gp_sp;
+
 		unsigned n_gp = 0;
 		for (size_t i = 0; i != n_params; ++i) {
 			ir_node *const param      = get_Call_param(node, i);
@@ -193,9 +199,13 @@ static ir_node *gen_Call(ir_node *const node)
 		ir_node   *const jal    = new_bd_mips_jal(dbgi, block, n_ins, ins, reqs, n_res, callee);
 
 		arch_set_irn_register_req_out(jal, pn_mips_jal_mem, arch_memory_req);
+		arch_copy_irn_out_info(jal, pn_mips_jal_stack, sp);
 		for (size_t i = 0; i != ARRAY_SIZE(caller_saves); ++i) {
 			arch_set_irn_register_req_out(jal, pn_mips_jal_first_result + i, mips_registers[caller_saves[i]].single_req);
 		}
+
+		ir_node *const new_stack = be_new_Proj(jal, pn_mips_jal_stack);
+		be_stack_record_chain(&stack_env, jal, n_mips_jal_stack, new_stack);
 
 		return jal;
 	}
@@ -638,6 +648,7 @@ static ir_node *gen_Return(ir_node *const node)
 	dbg_info *const dbgi  = get_irn_dbg_info(node);
 	ir_node  *const block = be_transform_nodes_block(node);
 	ir_node  *const jr    = new_bd_mips_jr(dbgi, block, n_ins, in, reqs);
+	be_stack_record_chain(&stack_env, jr, n_mips_jr_stack, NULL);
 	return jr;
 }
 
@@ -833,5 +844,7 @@ void mips_transform_graph(ir_graph *const irg)
 {
 	mips_register_transformers();
 	mips_set_allocatable_regs(irg);
+	be_stack_init(&stack_env);
 	be_transform_graph(irg, NULL);
+	be_stack_finish(&stack_env);
 }

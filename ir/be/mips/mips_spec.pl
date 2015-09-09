@@ -154,8 +154,8 @@ jal => {
 	state     => "exc_pinned",
 	in_reqs   => "...",
 	out_reqs  => "...",
-	ins       => [ "mem", "first_argument" ], # TODO stack
-	outs      => [ "mem", "first_result" ], # TODO stack
+	ins       => [ "mem", "stack", "first_argument" ],
+	outs      => [ "mem", "stack", "first_result" ],
 	attr_type => "mips_immediate_attr_t",
 	attr      => "ir_entity *const ent",
 	fixed     => "int32_t const val = 0;",

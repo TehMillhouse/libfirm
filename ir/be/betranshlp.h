@@ -150,9 +150,8 @@ void be_stack_finish(be_stack_env_t *env);
  * In case where a parameter is transmitted via register but someone takes its
  * address a store to the frame which can be references is necessary.
  * This function can be used as a preprocessing phase before transformation to
- * do this. The assumption is that all parameter_entities which are passed
- * through the stack are already moved to the arg_type and all remaining
- * parameter_entities on the frame type need stores.
+ * do this. The assumption is that all parameter_entities on the stackframe
+ * without an offset need such stores.
  */
 void be_add_parameter_entity_stores(ir_graph *irg);
 

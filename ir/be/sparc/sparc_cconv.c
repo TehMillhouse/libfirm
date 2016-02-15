@@ -217,12 +217,12 @@ calling_convention_t *sparc_decide_calling_convention(ir_type *function_type,
 			/* special case, we have reserved space for this on the between
 			 * type */
 			param->type   = param_type;
-			param->offset = -SPARC_MIN_STACKSIZE+SPARC_AGGREGATE_RETURN_OFFSET;
+			param->offset = SPARC_AGGREGATE_RETURN_OFFSET;
 			continue;
 		}
 
 		if (regnum < n_param_regs) {
-			param->offset = SPARC_PARAMS_SPILL_OFFSET + regnum * SPARC_REGISTER_SIZE;
+			param->offset = SPARC_PARAMS_SPILL_OFFSET - regnum * SPARC_REGISTER_SIZE;
 			arch_register_t const *reg = param_regs[regnum++];
 			if (irg == NULL || omit_fp)
 				reg = map_i_to_o_reg(reg);
@@ -242,6 +242,7 @@ calling_convention_t *sparc_decide_calling_convention(ir_type *function_type,
 				panic("only 32 and 64bit modes supported");
 
 			if (regnum < n_param_regs) {
+				param->offset = SPARC_PARAMS_SPILL_OFFSET - regnum * SPARC_REGISTER_SIZE;
 				arch_register_t const *reg = param_regs[regnum++];
 				if (irg == NULL || omit_fp)
 					reg = map_i_to_o_reg(reg);

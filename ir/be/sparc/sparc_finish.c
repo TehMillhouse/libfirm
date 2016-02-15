@@ -173,7 +173,7 @@ static void sparc_introduce_prolog_epilog(ir_graph *irg, bool omit_fp)
 	}
 
 	if (!omit_fp) {
-		ir_node *const save = new_bd_sparc_Save_imm(NULL, block, initial_sp, NULL, -(SPARC_MIN_STACKSIZE + frame_size));
+		ir_node *const save = new_bd_sparc_Save_imm(NULL, block, initial_sp, NULL, -frame_size);
 		arch_set_irn_register(save, sp_reg);
 		sched_add_after(start, save);
 
@@ -675,13 +675,18 @@ static void fix_constraints_walker(ir_node *block, void *env)
 
 void sparc_finish_graph(ir_graph *irg)
 {
-	bool          omit_fp = sparc_get_irg_data(irg)->omit_fp;
-	be_fec_env_t *fec_env = be_new_frame_entity_coalescer(irg);
+	bool omit_fp = sparc_get_irg_data(irg)->omit_fp;
 
+	be_fec_env_t *fec_env = be_new_frame_entity_coalescer(irg);
 	irg_walk_graph(irg, NULL, sparc_collect_frame_entity_nodes, fec_env);
 	be_assign_entities(fec_env, sparc_set_frame_entity, omit_fp);
 	be_free_frame_entity_coalescer(fec_env);
-	sparc_adjust_stack_entity_offsets(irg, omit_fp);
+
+	ir_type *const frame = get_irg_frame_type(irg);
+	be_sort_frame_entities(frame, omit_fp);
+	unsigned const misalign = 0;
+	int      const begin    = -SPARC_MIN_STACKSIZE;
+	be_layout_frame_type(frame, begin, misalign);
 
 	sparc_introduce_prolog_epilog(irg, omit_fp);
 

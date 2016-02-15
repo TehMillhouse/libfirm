@@ -2031,7 +2031,7 @@ static ir_node *gen_va_start(ir_node *node)
 		dbg_info  *dbgi   = get_irn_dbg_info(node);
 		ir_graph  *irg    = get_irn_irg(node);
 		ir_node   *block  = get_irg_start_block(irg);
-		ir_entity *entity = sparc_get_va_start_entity();
+		ir_entity *entity = current_cconv->va_start_addr;
 		ir_node   *frame  = get_frame_base(irg);
 		ir_node   *ap     = new_bd_sparc_FrameAddr(dbgi, block, frame, entity, 0);
 
@@ -2476,17 +2476,13 @@ void sparc_transform_graph(ir_graph *irg)
 		current_cconv
 			= sparc_decide_calling_convention(get_entity_type(entity), irg);
 	}
-	sparc_create_stacklayout(irg, current_cconv);
+	sparc_layout_param_entities(irg, current_cconv);
 	be_add_parameter_entity_stores(irg);
 
 	be_transform_graph(irg, NULL);
 
 	be_stack_finish(&stack_env);
 	sparc_free_calling_convention(current_cconv);
-
-	ir_type *frame_type = get_irg_frame_type(irg);
-	if (get_type_state(frame_type) == layout_undefined)
-		default_layout_compound_type(frame_type);
 
 	initial_va_list = NULL;
 

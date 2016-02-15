@@ -911,9 +911,9 @@ static void memperm_emit_restore_registers(const ir_node *node, int n_spilled)
 
 static int get_real_entity_offset(const ir_node *node, ir_entity *ent)
 {
-	ir_graph          *irg     = get_irn_irg(node);
-	be_stack_layout_t *layout  = be_get_irg_stack_layout(irg);
-	const int          off_ent = be_get_stack_entity_offset(layout, ent, 0);
+#if 0
+	ir_graph  *irg     = get_irn_irg(node);
+	const int  off_ent = be_get_stack_entity_offset(layout, ent, 0);
 
 	if (sparc_get_irg_data(irg)->omit_fp) {
 		ir_entity *ent_ref   = be_get_MemPerm_in_entity(node, 0);
@@ -925,6 +925,11 @@ static int get_real_entity_offset(const ir_node *node, ir_entity *ent)
 	} else {
 		return off_ent;
 	}
+#else
+	(void)node;
+	(void)ent;
+	return 0; /* TODO */
+#endif
 }
 
 static void memperm_emit_copy(const ir_node *node, ir_entity *in_ent,

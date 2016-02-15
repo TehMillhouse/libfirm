@@ -674,8 +674,9 @@ void be_stack_finish(be_stack_env_t *const env)
 	DEL_ARR_F(changes);
 }
 
-static void create_stores_for_type(ir_graph *irg, ir_type *type)
+void be_add_parameter_entity_stores(ir_graph *irg)
 {
+	ir_type *type        = get_irg_frame_type(irg);
 	ir_node *frame       = get_irg_frame(irg);
 	ir_node *initial_mem = get_irg_initial_mem(irg);
 	ir_node *mem         = initial_mem;
@@ -690,10 +691,11 @@ static void create_stores_for_type(ir_graph *irg, ir_type *type)
 		ir_type   *tp     = get_entity_type(entity);
 		if (!is_parameter_entity(entity))
 			continue;
+		if (get_entity_offset(entity) != INVALID_OFFSET)
+			continue;
 
 		size_t arg = get_entity_parameter_number(entity);
-		if (arg == IR_VA_START_PARAMETER_NUMBER)
-			continue;
+		assert(arg != IR_VA_START_PARAMETER_NUMBER);
 
 		ir_node *addr        = new_r_Member(start_block, frame, entity);
 		ir_type *mt          = get_entity_type(get_irg_entity(irg));
@@ -731,17 +733,6 @@ static void create_stores_for_type(ir_graph *irg, ir_type *type)
 		edges_reroute_except(initial_mem, mem, first_store);
 		set_irg_initial_mem(irg, initial_mem);
 	}
-}
-
-void be_add_parameter_entity_stores(ir_graph *irg)
-{
-	ir_type           *frame_type   = get_irg_frame_type(irg);
-	be_stack_layout_t *layout       = be_get_irg_stack_layout(irg);
-	ir_type           *between_type = layout->between_type;
-
-	create_stores_for_type(irg, frame_type);
-	if (between_type != NULL)
-		create_stores_for_type(irg, between_type);
 }
 
 unsigned be_get_n_allocatable_regs(const ir_graph *irg,

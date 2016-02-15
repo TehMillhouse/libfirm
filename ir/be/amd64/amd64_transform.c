@@ -3250,64 +3250,6 @@ static void amd64_register_transformers(void)
 	be_set_upper_bits_clean_function(op_Shrs, NULL);
 }
 
-static ir_type *amd64_get_between_type(bool omit_fp)
-{
-	static ir_type *between_type         = NULL;
-	static ir_type *omit_fp_between_type = NULL;
-
-	if (between_type == NULL) {
-		between_type = new_type_class(new_id_from_str("amd64_between_type"));
-		/* between type contains return address + saved base pointer */
-		set_type_size(between_type, 2*get_mode_size_bytes(mode_gp));
-
-		omit_fp_between_type
-			= new_type_class(new_id_from_str("amd64_between_type"));
-		/* between type contains return address */
-		set_type_size(omit_fp_between_type, get_mode_size_bytes(mode_gp));
-	}
-
-	return omit_fp ? omit_fp_between_type : between_type;
-}
-
-static void amd64_create_stacklayout(ir_graph *irg, const x86_cconv_t *cconv)
-{
-	/* construct argument type */
-	ir_entity *const entity   = get_irg_entity(irg);
-	ident     *const arg_id   = new_id_fmt("%s_arg_type", get_entity_ident(entity));
-	ir_type   *const arg_type = new_type_struct(arg_id);
-	for (size_t p = 0, n_params = cconv->n_parameters; p < n_params; ++p) {
-		reg_or_stackslot_t *param = &cconv->parameters[p];
-		if (param->type == NULL)
-			continue;
-
-		ident *const id = new_id_fmt("param_%u", (unsigned)p);
-		param->entity = new_entity(arg_type, id, param->type);
-		set_entity_offset(param->entity, param->offset);
-	}
-
-	ir_type *const function_type = get_entity_type(entity);
-	if (is_method_variadic(function_type)) {
-		ir_entity *stack_args_param = new_parameter_entity(
-			arg_type, IR_VA_START_PARAMETER_NUMBER, get_unknown_type());
-		set_entity_offset(stack_args_param, cconv->param_stacksize);
-		amd64_set_va_stack_args_param(stack_args_param);
-	}
-
-	be_stack_layout_t *const layout = be_get_irg_stack_layout(irg);
-	memset(layout, 0, sizeof(*layout));
-	layout->frame_type     = get_irg_frame_type(irg);
-	layout->between_type   = amd64_get_between_type(cconv->omit_fp);
-	layout->arg_type       = arg_type;
-	layout->initial_offset = 0;
-	layout->initial_bias   = 0;
-	layout->sp_relative    = cconv->omit_fp;
-
-	assert(N_FRAME_TYPES == 3);
-	layout->order[0] = layout->frame_type;
-	layout->order[1] = layout->between_type;
-	layout->order[2] = layout->arg_type;
-}
-
 void amd64_transform_graph(ir_graph *irg)
 {
 	assure_irg_properties(irg, IR_GRAPH_PROPERTY_NO_TUPLES
@@ -3324,7 +3266,8 @@ void amd64_transform_graph(ir_graph *irg)
 	bool const is_variadic = is_method_variadic(mtp);
 	if (is_variadic)
 		amd64_insert_reg_save_area(irg, current_cconv);
-	amd64_create_stacklayout(irg, current_cconv);
+	x86_layout_param_entities(irg, current_cconv, AMD64_REGISTER_SIZE);
+	amd64_set_va_stack_args_param(current_cconv->va_start_addr);
 	be_add_parameter_entity_stores(irg);
 	x86_create_parameter_loads(irg, current_cconv);
 
@@ -3336,10 +3279,6 @@ void amd64_transform_graph(ir_graph *irg)
 	heights = NULL;
 
 	be_stack_finish(&stack_env);
-
-	ir_type *frame_type = get_irg_frame_type(irg);
-	if (get_type_state(frame_type) == layout_undefined)
-		default_layout_compound_type(frame_type);
 
 	if (is_variadic) {
 		ir_node *const fp = get_frame_base(irg);

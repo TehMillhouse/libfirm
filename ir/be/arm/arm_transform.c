@@ -1645,57 +1645,22 @@ static ir_node *gen_Unknown(ir_node *node)
 	panic("unexpected Unknown mode");
 }
 
-/**
- * Produces the type which sits between the stack args and the locals on the
- * stack. It will contain the return address and space to store the old base
- * pointer.
- * @return The Firm type modeling the ABI between type.
- */
-static ir_type *arm_get_between_type(void)
+static void create_stacklayout(ir_graph *irg, calling_convention_t const *cconv)
 {
-	static ir_type *between_type = NULL;
-	if (between_type == NULL) {
-		between_type = new_type_class(new_id_from_str("arm_between_type"));
-		set_type_size(between_type, 0);
-	}
+	/* TODO: The following is not correct in the case where the address of
+	 * a parameter was taken (we will have duplicate entities) */
 
-	return between_type;
-}
-
-static void create_stacklayout(ir_graph *irg)
-{
-	/* calling conventions must be decided by now */
-	assert(cconv != NULL);
-
-	/* construct argument type */
-	ir_entity *const entity      = get_irg_entity(irg);
-	ident     *const arg_type_id = new_id_fmt("%s_arg_type", get_entity_ident(entity));
-	ir_type   *const arg_type    = new_type_struct(arg_type_id);
+	/* construct entities for arguments. */
+	ir_type *const frame_type = get_irg_frame_type(irg);
 	for (unsigned p = 0, n_params = cconv->n_parameters; p < n_params; ++p) {
 		reg_or_stackslot_t *param = &cconv->parameters[p];
 		if (param->type == NULL)
 			continue;
 
 		ident *const id = new_id_fmt("param_%u", p);
-		param->entity = new_entity(arg_type, id, param->type);
+		param->entity = new_entity(frame_type, id, param->type);
 		set_entity_offset(param->entity, param->offset);
 	}
-
-	/* TODO: what about external functions? we don't know most of the stack
-	 * layout for them. And probably don't need all of this... */
-	be_stack_layout_t *const layout = be_get_irg_stack_layout(irg);
-	memset(layout, 0, sizeof(*layout));
-	layout->frame_type     = get_irg_frame_type(irg);
-	layout->between_type   = arm_get_between_type();
-	layout->arg_type       = arg_type;
-	layout->initial_offset = 0;
-	layout->initial_bias   = 0;
-	layout->sp_relative    = true;
-
-	assert(N_FRAME_TYPES == 3);
-	layout->order[0] = layout->frame_type;
-	layout->order[1] = layout->between_type;
-	layout->order[2] = layout->arg_type;
 }
 
 /**
@@ -1854,8 +1819,8 @@ static ir_node *gen_Call(ir_node *node)
 
 		/* create a parameter frame if necessary */
 		ir_node *const str = mode_is_float(mode) ?
-			new_bd_arm_Stf(dbgi, new_block, callframe, new_value, new_mem, mode, NULL, 0, param->offset, true) :
-			new_bd_arm_Str(dbgi, new_block, callframe, new_value, new_mem, mode, NULL, 0, param->offset, true);
+			new_bd_arm_Stf(dbgi, new_block, callframe, new_value, new_mem, mode, NULL, 0, param->offset, false) :
+			new_bd_arm_Str(dbgi, new_block, callframe, new_value, new_mem, mode, NULL, 0, param->offset, false);
 		sync_ins[sync_arity++] = str;
 	}
 
@@ -2049,7 +2014,7 @@ void arm_transform_graph(ir_graph *irg)
 	be_stack_init(&stack_env);
 	ir_entity *entity = get_irg_entity(irg);
 	cconv = arm_decide_calling_convention(irg, get_entity_type(entity));
-	create_stacklayout(irg);
+	create_stacklayout(irg, cconv);
 	be_add_parameter_entity_stores(irg);
 
 	be_transform_graph(irg, NULL);
@@ -2058,11 +2023,6 @@ void arm_transform_graph(ir_graph *irg)
 
 	arm_free_calling_convention(cconv);
 	cconv = NULL;
-
-	ir_type *frame_type = get_irg_frame_type(irg);
-	if (get_type_state(frame_type) == layout_undefined) {
-		default_layout_compound_type(frame_type);
-	}
 }
 
 void arm_init_transform(void)

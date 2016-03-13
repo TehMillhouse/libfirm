@@ -199,6 +199,7 @@ set(SOURCES
 	ir/opt/scalar_replace.c
 	ir/opt/tailrec.c
 	ir/opt/unreachable.c
+	ir/opt/opt_phi_scc.c
 	ir/stat/stat_timing.c
 	ir/stat/statev.c
 	ir/tr/entity.c

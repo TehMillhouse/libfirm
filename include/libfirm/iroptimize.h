@@ -283,6 +283,10 @@ FIRM_API void opt_osr(ir_graph *irg, unsigned flags);
  */
 FIRM_API void remove_phi_cycles(ir_graph *irg);
 
+/** TODO documentation
+ */
+FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg);
+
 /** A default threshold. */
 #define DEFAULT_CLONE_THRESHOLD 20
 

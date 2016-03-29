@@ -236,6 +236,21 @@ static void print_sccs(scc_env_t *env)
     }
 }
 
+static void rewire_scc_uses(ir_graph *irg, scc_env_t *env)
+{
+    void replace_ins(ir_node *irn, scc_env_t *env) {
+        foreach_irn_in(irn, idx, pred) {
+            ir_node *replacement = ir_nodehashmap_get(ir_node, &env->replacement_map, pred);
+            if (replacement) {
+                set_irn_n(irn, idx, replacement);
+                printf("x");
+            }
+        }
+    }
+
+    irg_walk_graph(irg, (void (*)(ir_node *, void *)) replace_ins, NULL, env);
+}
+
 FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
 {
     //build_graph();
@@ -282,8 +297,9 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
         }
     }
 
-    printf("Done.\n");
-
+    printf("Done. Removing SCCs from graph...");
+    rewire_scc_uses(irg, &env);
+    printf("\n");
 
     DEL_ARR_F(env.stack);
     obstack_free(&env.obst, NULL);

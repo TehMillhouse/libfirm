@@ -26,12 +26,12 @@
 #include "util.h"
 
 
-/** We use (yet another implementation of) Tarjan's algorithm to find SCCs, which implicitly gives them
- * to us in reverse topological order, which is incidentally exactly the ordering we need.
+/** We use (yet another implementation of) Tarjan's algorithm to find SCCs, which implicitly obtains them
+ * in reverse topological order. (which forgoes the need for a fixpoint iteration)
  * These SCCs are then checked for whether they are, as a whole, redundant. If they are, we mark the mapping
  * from nodes in the SCC to their unique non-SCC predecessor for edge rerouting later.
  *
- * If an SCC is not redundant, we still have to all SCCs in the subgraph induced by the SCC without any nodes that
+ * If an SCC is not redundant, we still have to check all SCCs in the subgraph induced by the SCC without any nodes that
  * connect to its outside. In order to do this, we note the "allowed iteration depth" of each node and only increase
  * this number for the nodes we may recurse on. (since the "inner" part of different SCCs are disconnected, this works
  * out on the whole)
@@ -39,17 +39,17 @@
  * SCCs are in a doubly-linked list, with each SCC consisting of an ir_nodeset of nodes
  */
 
-typedef struct scc_node {
+typedef struct scc {
     list_head    link;
-    ir_nodeset_t irns;
-} scc_node_t;
+    ir_nodeset_t nodes;
+} scc_t;
 
 typedef struct scc_env {
     struct obstack   obst;
     ir_node        **stack;
     size_t           stack_top;
     unsigned         next_index;
-    list_head        sccs;             /**< doubly-linked list of sccs */
+    list_head        sccs;
     ir_nodehashmap_t replacement_map;  /**< map from node to their replacement */
 } scc_env_t;
 
@@ -125,11 +125,11 @@ static bool prepare_next_iteration(scc_env_t *env) {
     // for redundant sccs: add their nodes to the replacement_map
     // for nonredundant sccs: build a new working set, dispose of the old ones
 
-    list_for_each_entry_safe(scc_node_t, scc, tmp, &env->sccs, link) {
+    list_for_each_entry_safe(scc_t, scc, tmp, &env->sccs, link) {
 
         ir_node *unique_pred = NULL;
         bool redundant = true;
-        foreach_ir_nodeset(&scc->irns, irn, iter) {
+        foreach_ir_nodeset(&scc->nodes, irn, iter) {
             // only nodes which are not on the "rim" of the scc are eligible for the next iteration
             bool eligible_for_next_iteration = true;
             foreach_irn_in(irn, idx, original_pred) {
@@ -137,7 +137,7 @@ static bool prepare_next_iteration(scc_env_t *env) {
                 ir_node *pred = ir_nodehashmap_get(ir_node, &env->replacement_map, original_pred);
                 if (pred == NULL) pred = original_pred;
 
-                if (!ir_nodeset_contains(&scc->irns, pred)) {
+                if (!ir_nodeset_contains(&scc->nodes, pred)) {
                     if (unique_pred) redundant = false;
                     // we don't break out of the loop because we still want to mark all necessary nodes
                     unique_pred = pred;
@@ -149,19 +149,19 @@ static bool prepare_next_iteration(scc_env_t *env) {
                 info->depth++;
                 info->dfn = 0;
             } else {
-                ir_nodeset_remove_iterator(&scc->irns, &iter);
+                ir_nodeset_remove_iterator(&scc->nodes, &iter);
             }
         }
         if (redundant) {
             assert(unique_pred != NULL && "completely isolated phi cycles aren't supposed to exist!");
-            foreach_ir_nodeset(&scc->irns, irn, iter) {
+            foreach_ir_nodeset(&scc->nodes, irn, iter) {
                 ir_nodehashmap_insert(&env->replacement_map, irn, unique_pred);
             }
         }
 
-        if (ir_nodeset_size(&scc->irns) <= 1) {
+        if (ir_nodeset_size(&scc->nodes) <= 1) {
             // we have no need for this scc anymore (trivial phis are excluded by construction)
-            ir_nodeset_destroy(&scc->irns);
+            ir_nodeset_destroy(&scc->nodes);
             list_del_init(&scc->link);
         }
     }
@@ -204,8 +204,8 @@ static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
     }
     if (info->dfn == info->uplink) {
         // found an scc
-        struct scc_node *scc = OALLOC(&env->obst, struct scc_node);
-        ir_nodeset_init(&scc->irns);
+        struct scc *scc = OALLOC(&env->obst, struct scc);
+        ir_nodeset_init(&scc->nodes);
 
         ir_node *n2;
         int i = 0;
@@ -213,7 +213,7 @@ static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
             n2 = pop(env);
             scc_irn_info_t *n2_info = get_irn_info(n2, env);
             n2_info->in_stack = false;
-            ir_nodeset_insert(&scc->irns, n2);
+            ir_nodeset_insert(&scc->nodes, n2);
             i++;
         } while (n2 != n);
         list_add_tail(&scc->link, &env->sccs);
@@ -224,9 +224,9 @@ static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
 static void print_sccs(scc_env_t *env)
 {
     if (!list_empty(&env->sccs)) {
-        list_for_each_entry(scc_node_t, scc, &env->sccs, link) {
+        list_for_each_entry(scc_t, scc, &env->sccs, link) {
             printf("[ ");
-            foreach_ir_nodeset(&scc->irns, irn, iter) {
+            foreach_ir_nodeset(&scc->nodes, irn, iter) {
                 printf("%d, ", get_irn_idx(irn));
             }
             printf("]\n");
@@ -268,17 +268,17 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
     while (prepare_next_iteration(&env)) {
         list_head working_set = env.sccs;
         INIT_LIST_HEAD(&env.sccs);
-        printf("======================================\n next round\n======================================\n");
-        list_for_each_entry(scc_node_t, scc, &working_set, link) {
-            foreach_ir_nodeset(&scc->irns, irn, iter) {
+        printf("==========================\n next round\n==========================\n");
+        list_for_each_entry(scc_t, scc, &working_set, link) {
+            foreach_ir_nodeset(&scc->nodes, irn, iter) {
                 find_scc_at(irn, &env, 1);
             }
             printf("-------- NEXT SCC\n");
         }
         print_sccs(&env);
         // dispose of the old working set
-        list_for_each_entry(scc_node_t, scc, &working_set, link) {
-            ir_nodeset_destroy(&scc->irns);
+        list_for_each_entry(scc_t, scc, &working_set, link) {
+            ir_nodeset_destroy(&scc->nodes);
         }
     }
 

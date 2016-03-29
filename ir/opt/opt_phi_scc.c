@@ -28,22 +28,15 @@
 
 /** We use (yet another implementation of) Tarjan's algorithm to find SCCs, which implicitly gives them
  * to us in reverse topological order, which is incidentally exactly the ordering we need.
- */
-
-
-/** scratchpad:
+ * These SCCs are then checked for whether they are, as a whole, redundant. If they are, we mark the mapping
+ * from nodes in the SCC to their unique non-SCC predecessor for edge rerouting later.
  *
- * We compute all SCCs in a set of nodes. (until this is done, we have no way of knowing the SCCs predecessors)
- *   Note that the graph induced by these may not be connected
+ * If an SCC is not redundant, we still have to all SCCs in the subgraph induced by the SCC without any nodes that
+ * connect to its outside. In order to do this, we note the "allowed iteration depth" of each node and only increase
+ * this number for the nodes we may recurse on. (since the "inner" part of different SCCs are disconnected, this works
+ * out on the whole)
  *
- * We iterate over all SCCs in reverse topoorder, for each:
- *   sort phis into innerPhis and borderPhis
- *   if len(borderPhis) == 1, short circuit it
- *   else, recurse on innerPhis
- *
- *
- * this means we need to save arbitrarily many SCCs, and we need a quick way to exclude nodes from the searched
- * node set.
+ * SCCs are in a doubly-linked list, with each SCC consisting of an ir_nodeset of nodes
  */
 
 typedef struct scc_node {

@@ -19,6 +19,7 @@
 #include "debug.h"
 #include "ircons.h"
 #include "iredges_t.h"
+#include "irgmod.h"
 #include "irgwalk.h"
 #include "irnodehashmap.h"
 #include "irnodeset.h"
@@ -119,6 +120,14 @@ static ir_graph *build_graph(void)
     return g;
 }
 
+// TODO: Debug function, remove.
+static int count_sccs(list_head *head)
+{
+    int cnt = 0;
+    list_for_each_entry(scc_t, scc, head, link) cnt++;
+    return cnt;
+}
+
 /** returns whether another iteration is needed */
 static bool prepare_next_iteration(scc_env_t *env) {
     // check if any scc is redundant
@@ -153,7 +162,7 @@ static bool prepare_next_iteration(scc_env_t *env) {
             }
         }
         if (redundant) {
-            assert(unique_pred != NULL && "completely isolated phi cycles aren't supposed to exist!");
+            DEBUG_ONLY(assert(unique_pred != NULL && "completely isolated phi cycles aren't supposed to exist!"));
             foreach_ir_nodeset(&scc->nodes, irn, iter) {
                 ir_nodehashmap_insert(&env->replacement_map, irn, unique_pred);
             }
@@ -165,7 +174,6 @@ static bool prepare_next_iteration(scc_env_t *env) {
             list_del_init(&scc->link);
         }
     }
-    printf("next iteration is a go!\n");
     return !list_empty(&env->sccs);
 
 }
@@ -179,7 +187,7 @@ static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
     if (info->depth < depth)
         printf("blacklisted node: %d\n", get_irn_idx(n));
 
-    if (!is_Phi(n) || info->depth < depth) {
+    if (!(is_Phi(n) || is_Pin(n)) || info->depth < depth) {
         return false;
     }
     if (info->dfn != 0) {
@@ -236,16 +244,6 @@ static void print_sccs(scc_env_t *env)
     }
 }
 
-static void _replace_ins(ir_node *irn, scc_env_t *env) {
-    foreach_irn_in(irn, idx, pred) {
-        ir_node *replacement = ir_nodehashmap_get(ir_node, &env->replacement_map, pred);
-        if (replacement) {
-            set_irn_n(irn, idx, replacement);
-            printf("x");
-        }
-    }
-}
-
 static void _start_walk(ir_node *irn, void *env) {
     find_scc_at(irn, (scc_env_t *) env, 0);
 }
@@ -255,7 +253,7 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
     //build_graph();
 
     ir_add_dump_flags(ir_dump_flag_idx_label);
-    dump_ir_graph(irg, "rofl");
+    dump_ir_graph(irg, "PRE");
 
     struct scc_env env;
     memset(&env, 0, sizeof(env));
@@ -269,17 +267,20 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
     ir_reserve_resources(irg, IR_RESOURCE_IRN_LINK);
     irg_walk_graph(irg, NULL, firm_clear_link, NULL);
 
-    printf("Starting phi SCC removal\n");
-
     irg_walk_graph(irg, _start_walk, NULL, &env);
     print_sccs(&env);
 
 
     while (prepare_next_iteration(&env)) {
-        list_head working_set = env.sccs;
-        INIT_LIST_HEAD(&env.sccs);
+        // we swap out the list in the environment, keeping the previous list as a working set for the next iteration
+        list_head *tmp = (&env.sccs)->next;
+        list_del_init(&env.sccs);
+        list_head working_set;
+        INIT_LIST_HEAD(&working_set);
+        list_add_tail(&working_set, tmp);
+
         printf("==========================\n next round\n==========================\n");
-        list_for_each_entry(scc_t, scc, &working_set, link) {
+        list_for_each_entry_safe(scc_t, scc, tmp, &working_set, link) {
             foreach_ir_nodeset(&scc->nodes, irn, iter) {
                 find_scc_at(irn, &env, 1);
             }
@@ -292,11 +293,21 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
         }
     }
 
-    printf("Done. Removing SCCs from graph...");
-    irg_walk_graph(irg, (void (*)(ir_node *, void *)) _replace_ins, NULL, &env);
+    printf("About to remove %d nodes from graph.\n", (int) ir_nodehashmap_size(&env.replacement_map));
+    ir_nodehashmap_entry_t entry;
+    ir_nodehashmap_iterator_t iter;
+    foreach_ir_nodehashmap(&env.replacement_map, entry, iter) {
+        // Before removing Loop Phis, their keepalive edge must be removed
+        // TODO: Should we even remove these in the first place?
+        if (is_Phi(entry.node) && get_Phi_loop(entry.node))
+            remove_keep_alive(entry.node);
+        exchange(entry.node, (ir_node *) entry.data);
+    }
     printf("\n");
 
     DEL_ARR_F(env.stack);
     obstack_free(&env.obst, NULL);
     ir_free_resources(irg, IR_RESOURCE_IRN_LINK);
+
+    dump_ir_graph(irg, "POST");
 }

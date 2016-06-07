@@ -147,7 +147,7 @@ static bool prepare_next_iteration(scc_env_t *env) {
                 if (pred == NULL) pred = original_pred;
 
                 if (!ir_nodeset_contains(&scc->nodes, pred)) {
-                    if (unique_pred) redundant = false;
+                    if (unique_pred && unique_pred != pred) redundant = false;
                     // we don't break out of the loop because we still want to mark all necessary nodes
                     unique_pred = pred;
                     eligible_for_next_iteration = false;
@@ -157,16 +157,23 @@ static bool prepare_next_iteration(scc_env_t *env) {
                 scc_irn_info_t *info = get_irn_info(irn, env);
                 info->depth++;
                 info->dfn = 0;
-            } else {
-                ir_nodeset_remove_iterator(&scc->nodes, &iter);
             }
         }
+
         if (redundant) {
             DEBUG_ONLY(assert(unique_pred != NULL && "completely isolated phi cycles aren't supposed to exist!"));
             foreach_ir_nodeset(&scc->nodes, irn, iter) {
                 ir_nodehashmap_insert(&env->replacement_map, irn, unique_pred);
             }
         }
+        // Now that we've marked all nodes in the SCC, we can remove those we've deemed not eligible for the next iteration.
+        // (i.e. those who haven't had their dfn reset to zero.) We couldn't do this earlier because edges to the nodes in this
+        // class would have been counted as pointing outside the SCC.
+        foreach_ir_nodeset(&scc->nodes, irn, iter) {
+            if (get_irn_info(irn, env)->dfn != 0)
+                ir_nodeset_remove_iterator(&scc->nodes, &iter);
+        }
+
 
         if (ir_nodeset_size(&scc->nodes) <= 1) {
             // we have no need for this scc anymore (trivial phis are excluded by construction)
@@ -187,7 +194,9 @@ static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
     if (info->depth < depth)
         printf("blacklisted node: %d\n", get_irn_idx(n));
 
-    if (!(is_Phi(n) || is_Pin(n)) || info->depth < depth) {
+    // TODO: maybe I should exclude all Memory mode nodes?
+    // TODO: Should I remove Pin nodes?
+    if (!is_Phi(n) || (is_Phi(n) && get_Phi_loop(n)) || info->depth < depth) {
         return false;
     }
     if (info->dfn != 0) {
@@ -293,17 +302,11 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
         }
     }
 
-    printf("About to remove %d nodes from graph.\n", (int) ir_nodehashmap_size(&env.replacement_map));
     ir_nodehashmap_entry_t entry;
     ir_nodehashmap_iterator_t iter;
     foreach_ir_nodehashmap(&env.replacement_map, entry, iter) {
-        // Before removing Loop Phis, their keepalive edge must be removed
-        // TODO: Should we even remove these in the first place?
-        if (is_Phi(entry.node) && get_Phi_loop(entry.node))
-            remove_keep_alive(entry.node);
         exchange(entry.node, (ir_node *) entry.data);
     }
-    printf("\n");
 
     DEL_ARR_F(env.stack);
     obstack_free(&env.obst, NULL);

@@ -13,12 +13,11 @@
  *  See "Simple and Efficient Construction of Static Single Assignment Form" by Braun et al.
  */
 
-#include "irdump.h"
-#include "adt/list.h"
-#include "array.h"
+#include <irdump_t.h>
+#include <bits/time.h>
+#include <time.h>
 #include "debug.h"
 #include "ircons.h"
-#include "iredges_t.h"
 #include "irgmod.h"
 #include "irgwalk.h"
 #include "irnodehashmap.h"
@@ -37,7 +36,7 @@
  * this number for the nodes we may recurse on. (since the "inner" part of different SCCs are disconnected, this works
  * out on the whole)
  *
- * SCCs are in a doubly-linked list, with each SCC consisting of an ir_nodeset of nodes
+ * SCCs are stored in a doubly-linked list, with each SCC consisting of an ir_nodeset of nodes.
  */
 
 typedef struct scc {
@@ -98,34 +97,10 @@ static void push(scc_env_t *env, ir_node *node)
  */
 static ir_node *pop(scc_env_t *env)
 {
-    ir_node      *n = env->stack[--env->stack_top];
+    ir_node        *n = env->stack[--env->stack_top];
     scc_irn_info_t *e = get_irn_info(n, env);
     e->in_stack = false;
     return n;
-}
-
-static ir_graph *build_graph(void)
-{
-    ir_type *type = new_type_method(0, 0);
-    ir_entity *ent = new_entity(get_glob_type(), "______test", type);
-    ir_graph *g = new_ir_graph(ent, 10);
-
-    set_current_ir_graph(g);
-
-    // ir_node *ifLeft = new_Block(1, )
-    // TODO: create test graph to work on
-
-
-    clear_irg_constraints(g, IR_GRAPH_CONSTRAINT_CONSTRUCTION);
-    return g;
-}
-
-// TODO: Debug function, remove.
-static int count_sccs(list_head *head)
-{
-    int cnt = 0;
-    list_for_each_entry(scc_t, scc, head, link) cnt++;
-    return cnt;
 }
 
 /** returns whether another iteration is needed */
@@ -185,20 +160,18 @@ static bool prepare_next_iteration(scc_env_t *env) {
 
 }
 
+static inline bool is_removable(ir_node *irn, scc_env_t *env, int depth) {
+    scc_irn_info_t *info = get_irn_info(irn, env);
+    return is_Phi(irn) && !get_Phi_loop(irn) && info->depth >= depth;
+}
+
 /** returns false if n must be ignored
  *  (either because it's not a Phi node or because it's been excluded in a previous run) */
 static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
 {
+    if (!is_removable(n, env, depth)) return false;
+
     scc_irn_info_t *info = get_irn_info(n, env);
-
-    if (info->depth < depth)
-        printf("blacklisted node: %d\n", get_irn_idx(n));
-
-    // TODO: maybe I should exclude all Memory mode nodes?
-    // TODO: Should I remove Pin nodes?
-    if (!is_Phi(n) || (is_Phi(n) && get_Phi_loop(n)) || info->depth < depth) {
-        return false;
-    }
     if (info->dfn != 0) {
         // node has already been visited
         return true;
@@ -238,6 +211,7 @@ static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
     return true;
 }
 
+#ifdef DEBUG_LIBFIRM
 static void print_sccs(scc_env_t *env)
 {
     if (!list_empty(&env->sccs)) {
@@ -253,16 +227,29 @@ static void print_sccs(scc_env_t *env)
     }
 }
 
+static int phiCount = 0;
+static void _count_phis(ir_node *irn, void *env) {
+    if (is_Phi(irn) && get_irn_mode(irn) != mode_M) phiCount++;
+}
+#endif
+
 static void _start_walk(ir_node *irn, void *env) {
     find_scc_at(irn, (scc_env_t *) env, 0);
 }
 
 FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
 {
-    //build_graph();
 
+#ifdef DEBUG_LIBFIRM
     ir_add_dump_flags(ir_dump_flag_idx_label);
+    bool isTarget = false;
     dump_ir_graph(irg, "PRE");
+
+    clock_t begin, end;
+    double time_spent;
+    begin = clock();
+    phiCount = 0;
+#endif
 
     struct scc_env env;
     memset(&env, 0, sizeof(env));
@@ -277,8 +264,6 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
     irg_walk_graph(irg, NULL, firm_clear_link, NULL);
 
     irg_walk_graph(irg, _start_walk, NULL, &env);
-    print_sccs(&env);
-
 
     while (prepare_next_iteration(&env)) {
         // we swap out the list in the environment, keeping the previous list as a working set for the next iteration
@@ -288,14 +273,11 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
         INIT_LIST_HEAD(&working_set);
         list_add_tail(&working_set, tmp);
 
-        printf("==========================\n next round\n==========================\n");
         list_for_each_entry_safe(scc_t, scc, tmp, &working_set, link) {
             foreach_ir_nodeset(&scc->nodes, irn, iter) {
                 find_scc_at(irn, &env, 1);
             }
-            printf("-------- NEXT SCC\n");
         }
-        print_sccs(&env);
         // dispose of the old working set
         list_for_each_entry(scc_t, scc, &working_set, link) {
             ir_nodeset_destroy(&scc->nodes);
@@ -304,13 +286,29 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
 
     ir_nodehashmap_entry_t entry;
     ir_nodehashmap_iterator_t iter;
+
     foreach_ir_nodehashmap(&env.replacement_map, entry, iter) {
         exchange(entry.node, (ir_node *) entry.data);
     }
 
+#ifdef DEBUG_LIBFIRM
+    end = clock();
+    time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
+
+    irg_walk_graph(irg, _count_phis, NULL, &env);
+    FILE *f = fopen("./PHIS", "a");
+
+    fprintf(f, "Phis removed in %s: %d (took %f seconds, %d phis remaining)\n",
+            get_irg_dump_name(irg),
+            (int) ir_nodehashmap_size(&env.replacement_map),
+            (float) time_spent,
+            phiCount);
+    fclose(f);
+
+    dump_ir_graph(irg, "POST");
+#endif
+
     DEL_ARR_F(env.stack);
     obstack_free(&env.obst, NULL);
     ir_free_resources(irg, IR_RESOURCE_IRN_LINK);
-
-    dump_ir_graph(irg, "POST");
 }

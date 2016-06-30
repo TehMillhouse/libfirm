@@ -211,7 +211,7 @@ static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
     return true;
 }
 
-#ifdef DEBUG_LIBFIRM
+#ifdef DEBUG_libfirm
 static void print_sccs(scc_env_t *env)
 {
     if (!list_empty(&env->sccs)) {
@@ -240,10 +240,8 @@ static void _start_walk(ir_node *irn, void *env) {
 FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
 {
 
-#ifdef DEBUG_LIBFIRM
+#ifdef DEBUG_libfirm
     ir_add_dump_flags(ir_dump_flag_idx_label);
-    bool isTarget = false;
-    dump_ir_graph(irg, "PRE");
 
     clock_t begin, end;
     double time_spent;
@@ -287,11 +285,13 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
     ir_nodehashmap_entry_t entry;
     ir_nodehashmap_iterator_t iter;
 
+    DEBUG_ONLY (if (ir_nodehashmap_size(&env.replacement_map)) dump_ir_graph(irg, "PRE"););
+
     foreach_ir_nodehashmap(&env.replacement_map, entry, iter) {
         exchange(entry.node, (ir_node *) entry.data);
     }
 
-#ifdef DEBUG_LIBFIRM
+#ifdef DEBUG_libfirm
     end = clock();
     time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
 
@@ -305,7 +305,7 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
             phiCount);
     fclose(f);
 
-    dump_ir_graph(irg, "POST");
+    if (ir_nodehashmap_size(&env.replacement_map)) dump_ir_graph(irg, "POST");
 #endif
 
     DEL_ARR_F(env.stack);

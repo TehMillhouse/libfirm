@@ -308,6 +308,7 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
     if (ir_nodehashmap_size(&env.replacement_map)) dump_ir_graph(irg, "POST");
 #endif
 
+    ir_nodehashmap_destroy((ir_nodehashmap_t *) &env.replacement_map);
     DEL_ARR_F(env.stack);
     obstack_free(&env.obst, NULL);
     ir_free_resources(irg, IR_RESOURCE_IRN_LINK);

@@ -177,6 +177,66 @@ static inline bool is_removable(ir_node *irn, scc_env_t *env, int depth) {
 }
 
 
+/// DEBUG
+ir_graph *create_blank_graph(void) {
+    ir_type *t = new_type_method(0, 1, false, 0, mtp_no_property);
+    set_method_res_type(t, 0, new_type_primitive(get_modeIs()));
+    ir_entity *ent = new_entity(get_glob_type(), new_id_from_str("test_"), t);
+    ir_graph *g = new_ir_graph(ent, 100);
+    return g;
+}
+
+ir_graph *create_ladder_graph(int steps) {
+    ir_graph *g = create_blank_graph();
+    set_current_ir_graph(g);
+
+    ir_node *startbl = get_irg_start_block(g);
+    set_cur_block(startbl);
+
+    ir_node *n0 = new_Const_long(mode_Is, 0);
+    ir_node *n1 = new_Const_long(mode_Is, 1);
+
+    ir_node *ins1[] = {n0};
+    ir_node *ret = new_r_Return(startbl, get_irg_initial_mem(g), 1, ins1);
+    add_immBlock_pred(get_irg_end_block(g), ret);
+
+    printf("creating phis\n");
+    ir_node *ins[] = {n0, n1};
+    ir_node *final0 = new_r_Phi(startbl, 2, ins, mode_Is);
+    ir_node *final1 = new_r_Phi(startbl, 2, ins, mode_Is);
+
+    ins[0] = final0;
+    ins[1] = final1;
+
+    ir_node *final = new_r_Phi(startbl, 2, ins, mode_Is);
+
+    ir_node *phi0, *phi1;
+    ir_node *oldphi0 = n0, *oldphi1 = n1;
+    // Loop creating n steps
+    for (int n = 0; n < steps; n++) {
+        ins[0] = oldphi0;
+        ins[1] = final0;
+        phi0 = new_r_Phi(startbl, 2, ins, mode_Is);
+        ins[0] = oldphi1;
+        ins[1] = final1;
+        phi1 = new_r_Phi(startbl, 2, ins, mode_Is);
+
+        oldphi0 = phi0;
+        oldphi1 = phi1;
+    }
+
+    ir_node *fixup[] = {phi0, final1};
+    set_irn_in(final0, 2, fixup);
+    fixup[0] = phi1;
+    fixup[1] = final0;
+    set_irn_in(final1, 2, fixup);
+
+    set_irn_n(ret, 1, final);
+    clear_irg_constraints(g, IR_GRAPH_CONSTRAINT_CONSTRUCTION);
+    return g;
+}
+
+
 /** Perform's Tarjan's algorithm, starting at a given node
  *
  *  returns false if n must be ignored
@@ -256,6 +316,8 @@ static void _start_walk(ir_node *irn, void *env) {
 FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
 {
 
+    irg = create_ladder_graph(10);
+    printf("DONE\n");
 #ifdef DEBUG_libfirm
     ir_add_dump_flags(ir_dump_flag_idx_label);
 

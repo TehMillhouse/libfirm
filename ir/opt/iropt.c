@@ -1765,6 +1765,9 @@ static bool only_one_user(const ir_node *node)
  */
 static bool is_const_Phi(ir_node *n)
 {
+    //DEBUG
+    return false;
+    //
 	if (!is_Phi(n) || get_irn_arity(n) == 0)
 		return false;
 	foreach_irn_in_r(n, i, pred) {
@@ -5779,16 +5782,16 @@ static ir_node *transform_node_Phi(ir_node *phi)
 		return phi;
 
 	/* Set phi-operands for bad-block inputs to bad */
-	for (int i = 0; i < n; ++i) {
-		if (!is_Bad(get_Phi_pred(phi, i))) {
-			ir_node *pred = get_Block_cfgpred(block, i);
-			if (is_Bad(pred) || is_block_unreachable(get_nodes_block(pred))) {
-				if (bad == NULL)
-					bad = new_r_Bad(irg, mode);
-				set_irn_n(phi, i, bad);
-			}
-		}
-	}
+	//for (int i = 0; i < n; ++i) {
+	//	if (!is_Bad(get_Phi_pred(phi, i))) {
+	//		ir_node *pred = get_Block_cfgpred(block, i);
+	//		if (is_Bad(pred) || is_block_unreachable(get_nodes_block(pred))) {
+	//			if (bad == NULL)
+	//				bad = new_r_Bad(irg, mode);
+	//			set_irn_n(phi, i, bad);
+	//		}
+	//	}
+	//}
 
 	/* Move Pin nodes down through Phi nodes. */
 	if (mode == mode_M) {

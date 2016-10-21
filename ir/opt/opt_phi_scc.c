@@ -351,6 +351,8 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
         foreach_ir_nodeset(&current_set->nodes, irn, iter) {
             find_scc_at(irn, &env, current_set->depth);
         }
+        // clean up the scc we just popped off
+        ir_nodeset_destroy(&current_set->nodes);
         prepare_next_iteration(&env);
 
     }

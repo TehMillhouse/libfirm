@@ -42,6 +42,7 @@
 typedef struct scc {
     list_head    link;
     ir_nodeset_t nodes;
+    int depth;
 } scc_t;
 
 typedef struct scc_env {
@@ -49,7 +50,6 @@ typedef struct scc_env {
     ir_node        **stack;
     size_t           stack_top;
     unsigned         next_index;
-    unsigned         next_scc_id;
     list_head        working_set_sccs; /**< the sccs we *just* found, and haven't yet evaluated */
     list_head        scc_work_stack;   /**< the sets of nodes we still need to evaluate in future iterations */
     ir_nodehashmap_t replacement_map;  /**< map from node to their replacement */
@@ -59,7 +59,7 @@ typedef struct scc_irn_info {
     bool     in_stack;          /**< Marks whether node is on the stack. */
     int      dfn;               /**< Depth first search number. */
     int      uplink;            /**< dfn number of ancestor. */
-    int      scc_id;            /**< iteration depth of scc search */
+    int      depth;            /**< iteration depth of scc search */
 } scc_irn_info_t;
 
 
@@ -107,7 +107,7 @@ static ir_node *pop(scc_env_t *env)
 
 
 /** return the unique predecessor of a redundant scc, or NULL if the scc is not redundant.
- *  (Also marks nodes elidible for next iteration by clearing their dfn and setting their scc_id
+ *  (Also marks nodes elidible for next iteration by clearing their dfn and setting their depth)
  */
 static ir_node *get_unique_pred(scc_t *scc, scc_env_t *env) {
     ir_node *unique_pred = NULL;
@@ -129,7 +129,8 @@ static ir_node *get_unique_pred(scc_t *scc, scc_env_t *env) {
         }
         if (eligible_for_next_iteration) {
             scc_irn_info_t *info = get_irn_info(irn, env);
-            info->scc_id = env->next_scc_id;
+            info->depth++;
+            scc->depth = info->depth; // TODO factor out
             info->dfn = 0;
         }
     }
@@ -154,8 +155,6 @@ static void prepare_next_iteration(scc_env_t *env) {
             ir_nodeset_destroy(&scc->nodes);
             list_del_init(&scc->link);
         } else {
-            // we're done with this scc
-            //env->next_scc_id++;
             foreach_ir_nodeset(&scc->nodes, irn, iter) {
                 // get_unique_pred has marked all "inner" nodes by resetting their dfn, the rest must be removed.
                 if (get_irn_info(irn, env)->dfn != 0)
@@ -172,9 +171,9 @@ static void prepare_next_iteration(scc_env_t *env) {
     }
 }
 
-static inline bool is_removable(ir_node *irn, scc_env_t *env, int current_scc_id) {
+static inline bool is_removable(ir_node *irn, scc_env_t *env, int depth) {
     scc_irn_info_t *info = get_irn_info(irn, env);
-    return is_Phi(irn) && !get_Phi_loop(irn) && info->scc_id >= current_scc_id;
+    return is_Phi(irn) && !get_Phi_loop(irn) && info->depth >= depth;
 }
 
 
@@ -220,9 +219,9 @@ static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
             n2_info->in_stack = false;
             ir_nodeset_insert(&scc->nodes, n2);
             i++;
+            scc->depth = n2_info->depth;
         } while (n2 != n);
         list_add_tail(&scc->link, &env->working_set_sccs);
-        env->next_scc_id++;
     }
     return true;
 }
@@ -251,7 +250,7 @@ static void _count_phis(ir_node *irn, void *env) {
 
 // One recursive "find_scc_at" handles a complete phi web, but there may be many, so we need to walk the graph
 static void _start_walk(ir_node *irn, void *env) {
-    find_scc_at(irn, (scc_env_t *) env, ((scc_env_t *) env)->next_scc_id);
+    find_scc_at(irn, (scc_env_t *) env, 0 /* this is only used for the initial SCC search, so depth 0 is fine*/);
 }
 
 FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
@@ -288,9 +287,8 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
         scc_t *current_set = list_entry(env.scc_work_stack.next, scc_t, link);
         list_del(env.scc_work_stack.next);
         foreach_ir_nodeset(&current_set->nodes, irn, iter) {
-            find_scc_at(irn, &env, env.next_scc_id);
+            find_scc_at(irn, &env, current_set->depth);
         }
-
         prepare_next_iteration(&env);
 
     }

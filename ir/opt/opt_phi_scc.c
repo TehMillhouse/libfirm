@@ -42,7 +42,7 @@
 typedef struct scc {
     list_head    link;
     ir_nodeset_t nodes;
-    int depth;
+    unsigned depth;
 } scc_t;
 
 typedef struct scc_env {
@@ -57,9 +57,9 @@ typedef struct scc_env {
 
 typedef struct scc_irn_info {
     bool     in_stack;          /**< Marks whether node is on the stack. */
-    int      dfn;               /**< Depth first search number. */
-    int      uplink;            /**< dfn number of ancestor. */
-    int      depth;            /**< iteration depth of scc search */
+    unsigned dfn;               /**< Depth first search number. */
+    unsigned uplink;            /**< dfn number of ancestor. */
+    unsigned depth;            /**< iteration depth of scc search */
 } scc_irn_info_t;
 
 
@@ -171,7 +171,7 @@ static void prepare_next_iteration(scc_env_t *env) {
     }
 }
 
-static inline bool is_removable(ir_node *irn, scc_env_t *env, int depth) {
+static inline bool is_removable(ir_node *irn, scc_env_t *env, unsigned depth) {
     scc_irn_info_t *info = get_irn_info(irn, env);
     return is_Phi(irn) && !get_Phi_loop(irn) && info->depth >= depth;
 }
@@ -241,7 +241,7 @@ ir_graph *create_ladder_graph(int steps) {
  *
  *  returns false if n must be ignored
  *  (either because it's not a Phi node or because it's been excluded in a previous run) */
-static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
+static bool find_scc_at(ir_node *n, scc_env_t *env, unsigned depth)
 {
     if (!is_removable(n, env, depth)) return false;
 
@@ -272,13 +272,11 @@ static bool find_scc_at(ir_node *n, scc_env_t *env, int depth)
         ir_nodeset_init(&scc->nodes);
 
         ir_node *n2;
-        int i = 0;
         do {
             n2 = pop(env);
             scc_irn_info_t *n2_info = get_irn_info(n2, env);
             n2_info->in_stack = false;
             ir_nodeset_insert(&scc->nodes, n2);
-            i++;
             scc->depth = n2_info->depth;
         } while (n2 != n);
         list_add_tail(&scc->link, &env->working_set_sccs);

@@ -116,15 +116,19 @@ static ir_node *get_unique_pred(scc_t *scc, scc_env_t *env) {
         // only nodes which are not on the "rim" of the scc are eligible for the next iteration
         bool eligible_for_next_iteration = true;
         foreach_irn_in(irn, idx, original_pred) {
-            // previous iterations might have "deleted" the node already.
-            ir_node *pred = ir_nodehashmap_get(ir_node, &env->replacement_map, original_pred);
-            if (pred == NULL) pred = original_pred;
+            // we can safely ignore self-loops in this regard
+            if (original_pred != irn) {
 
-            if (!ir_nodeset_contains(&scc->nodes, pred)) {
-                if (unique_pred && unique_pred != pred) redundant = false;
-                // we don't break out of the loop because we still want to mark all necessary nodes
-                unique_pred = pred;
-                eligible_for_next_iteration = false;
+                // previous iterations might have "deleted" the node already.
+                ir_node *pred = ir_nodehashmap_get(ir_node, &env->replacement_map, original_pred);
+                if (pred == NULL) pred = original_pred;
+
+                if (!ir_nodeset_contains(&scc->nodes, pred)) {
+                    if (unique_pred && unique_pred != pred) redundant = false;
+                    // we don't break out of the loop because we still want to mark all necessary nodes
+                    unique_pred = pred;
+                    eligible_for_next_iteration = false;
+                }
             }
         }
         if (eligible_for_next_iteration) {

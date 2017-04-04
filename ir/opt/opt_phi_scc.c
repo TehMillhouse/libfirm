@@ -14,8 +14,6 @@
  */
 
 #include <irdump_t.h>
-#include <bits/time.h>
-#include <time.h>
 #include "debug.h"
 #include "ircons.h"
 #include "irgmod.h"
@@ -217,7 +215,7 @@ ir_graph *create_ladder_graph(int steps) {
     ir_node *phi0, *phi1;
     ir_node *oldphi0 = n0, *oldphi1 = n1;
     // Loop creating n steps
-    for (int n = 0; n < steps; n++) {
+    for (int n = 0; n < steps-1; n++) {
         ins[0] = oldphi0;
         ins[1] = final0;
         phi0 = new_r_Phi(startbl, 2, ins, mode_Is);
@@ -303,11 +301,6 @@ static void print_sccs(scc_env_t *env)
         printf("No SCCs found :(\n");
     }
 }
-
-static int phiCount = 0;
-static void _count_phis(ir_node *irn, void *env) {
-    if (is_Phi(irn) && get_irn_mode(irn) != mode_M) phiCount++;
-}
 #endif
 
 // One recursive "find_scc_at" handles a complete phi web, but there may be many, so we need to walk the graph
@@ -317,17 +310,6 @@ static void _start_walk(ir_node *irn, void *env) {
 
 FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
 {
-
-    irg = create_ladder_graph(10);
-    printf("DONE\n");
-#ifdef DEBUG_libfirm
-    ir_add_dump_flags(ir_dump_flag_idx_label);
-
-    clock_t begin, end;
-    double time_spent;
-    begin = clock();
-    phiCount = 0;
-#endif
 
     struct scc_env env;
     memset(&env, 0, sizeof(env));
@@ -362,31 +344,14 @@ FIRM_API void opt_remove_unnecessary_phi_sccs(ir_graph *irg)
     ir_nodehashmap_entry_t entry;
     ir_nodehashmap_iterator_t iter;
 
-    DEBUG_ONLY (if (ir_nodehashmap_size(&env.replacement_map)) dump_ir_graph(irg, "PRE"););
-
     foreach_ir_nodehashmap(&env.replacement_map, entry, iter) {
         exchange(entry.node, (ir_node *) entry.data);
     }
-
-#ifdef DEBUG_libfirm
-    end = clock();
-    time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
-
-    irg_walk_graph(irg, _count_phis, NULL, &env);
-    FILE *f = fopen("./PHIS", "a");
-
-    fprintf(f, "Phis removed in %s: %d (took %f seconds, %d phis remaining)\n",
-            get_irg_dump_name(irg),
-            (int) ir_nodehashmap_size(&env.replacement_map),
-            (float) time_spent,
-            phiCount);
-    fclose(f);
-
-    if (ir_nodehashmap_size(&env.replacement_map)) dump_ir_graph(irg, "POST");
-#endif
 
     ir_nodehashmap_destroy((ir_nodehashmap_t *) &env.replacement_map);
     DEL_ARR_F(env.stack);
     obstack_free(&env.obst, NULL);
     ir_free_resources(irg, IR_RESOURCE_IRN_LINK);
+
+    printf("SCC removal DONE\n");
 }
